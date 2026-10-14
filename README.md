@@ -33,6 +33,7 @@ Built independently from the architectural ideas in Anthropic's October 13, 2026
 - **Share changes without moving a branch.** `commit` creates a server-side changeset; `land` separately advances a ref with compare-and-swap protection.
 - **Ask the server.** Diff, history, merge, rebase, blame, and search are HTTP operations. A CI job can use the API without creating a working copy.
 - **Reuse immutable content.** SHA-256 identities deduplicate blobs and persistent tree nodes. Clients verify downloaded content and retain a bounded local cache.
+- **Recover and audit changes.** Working-copy journals support interrupted-update recovery, repository snapshots include verified objects, and shared-ref updates have a transactional audit trail.
 - **Read the whole implementation.** The runtime uses Python's standard library. Git is needed only for the optional history importer.
 
 ## Quickstart
@@ -139,6 +140,24 @@ The client downloads selected file contents through HTTP and verifies their type
 
 See [Architecture](docs/ARCHITECTURE.md) for storage layout, concurrency, merge semantics, working-copy protection, and implementation tradeoffs. See the [HTTP API](docs/API.md) for checkout-free reads and writes.
 
+### Source layout
+
+```text
+open_scion/
+├── cli/              # Parsing, command handlers, and output
+│   └── commands/
+├── client/           # HTTP transport and verified object API
+├── graph/            # Generation-pruned traversal and metadata cache
+├── importers/        # Git history adapters
+├── operations/       # Inspection, text merging, and integration
+├── server/           # Routes, validation, admission control, and telemetry
+├── store/            # Objects, trees, changesets, refs, integrity, and snapshots
+└── workspace/        # Scanning, cache, process locks, journals, and recovery
+```
+
+Package facades keep the public interfaces small while implementation modules own
+specific persistence, protocol, and filesystem responsibilities.
+
 ## Commands
 
 Run `scion COMMAND --help` for every flag. Workspace commands discover the workspace from the current directory or its parents.
@@ -159,6 +178,10 @@ Run `scion COMMAND --help` for every flag. Workspace commands discover the works
 | List shared refs | `scion refs` |
 | Import Git history | `scion import-git PATH --server URL [--ref main] [--revision HEAD]` |
 | Verify server storage | `scion fsck --data DIRECTORY` |
+| Create a repository snapshot | `scion backup --data DIRECTORY --output NEW_DIRECTORY` |
+| Restore a verified snapshot | `scion restore SNAPSHOT --data NEW_DIRECTORY` |
+| Inspect ref audit history | `scion ref-log [--name main] [--limit N]` |
+| Recover an interrupted update | `scion recover` |
 
 `land --expected none` requires a new ref. Without `--expected`, the client reads the current target and uses that snapshot for the compare-and-swap. Merge and rebase create a changeset and update the workspace; they leave shared refs unchanged.
 
@@ -186,21 +209,44 @@ The default listener is `127.0.0.1:7433`. To share a repository, set the same `S
 
 For consistency checks, run `scion fsck --data DIRECTORY`. See [storage and concurrency](docs/ARCHITECTURE.md#concurrency-and-refs), [working-copy updates](docs/ARCHITECTURE.md#update-protection), and the [HTTP transport reference](docs/API.md#transport-and-authentication) for operational details.
 
+The service exposes `/ready` for repository readiness and authenticated
+`/v1/metrics` counters. Configure `--max-workers`, `--max-inflight-bytes`, and
+`--request-timeout` for request admission, then enable `--access-log` for JSON logs
+correlated through `X-Request-ID`.
+
+Use the supplied [Dockerfile](Dockerfile) and [Compose configuration](compose.yaml)
+for a persistent container service. The [operations guide](docs/OPERATIONS.md)
+covers deployment, live snapshots, verified restore, audit history, and workspace
+recovery.
+
 ## Technical reference
 
 | Area | Specification |
 | --- | --- |
 | Local blob cache | 64 MiB, content-verified, with least-recently-used eviction. |
 | HTTP request body | Up to 16 MiB, including raw blob uploads. |
+| Service admission | 32 concurrent workers and 64 MiB of admitted request bodies by default; configurable separately. |
+| Graph queries | Generation pruning with a bounded 4,096-entry immutable metadata cache. |
 | Native file modes | Regular files (`100644`) and executable files (`100755`); binary content is preserved. |
 | Server text inspection | UTF-8 files up to 1 MiB and 20,000 lines; overlapping binary edits return conflicts. |
 | History and search | First-parent log/blame and literal substring search over selected files. |
 | Rebase | Replays one changeset's first-parent delta onto the chosen revision. |
-| Update workflow | Download and verify target content, protect local edits, then update files and metadata. |
+| Update workflow | OS advisory lock, durable staged files and journal, atomic metadata commit, and offline recovery. |
 
 The [architecture guide](docs/ARCHITECTURE.md) describes the algorithms and storage format. The [API reference](docs/API.md) covers request fields, response shapes, authentication, and error handling.
 
 ## Development
+
+Development is organized into three [milestones](https://github.com/rizaust/open-scion/milestones):
+
+| Milestone | Focus |
+| --- | --- |
+| [v0.2 — Reliable core](https://github.com/rizaust/open-scion/milestone/1) | Modular integration, durable workspace recovery, and repository backup operations. |
+| [v0.3 — Team collaboration](https://github.com/rizaust/open-scion/milestone/2) | Scoped identities, idempotent requests, and protected-ref landing policies. |
+| [v0.4 — Storage and query scale](https://github.com/rizaust/open-scion/milestone/3) | Storage backends, batched object transfer, indexes, garbage collection, and shared caches. |
+
+Each issue describes its scope and acceptance criteria. Follow the milestones for
+the current implementation and integration status.
 
 ```sh
 python -m unittest discover -s tests -v

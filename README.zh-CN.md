@@ -33,6 +33,7 @@
 - **共享修改与推进分支分开。** `commit` 在服务端创建 changeset；`land` 再通过比较并交换保护推进 ref。
 - **直接向服务端提问。** diff、历史、合并、rebase、blame 和搜索均提供 HTTP 接口。CI 可以不创建工作副本，直接调用 API。
 - **复用不可变内容。** 使用 SHA-256 标识去重 blob 和持久化树节点。客户端下载后校验内容，并维护容量有限的本地缓存。
+- **恢复与审计变更。** 工作副本日志支持中断恢复，仓库快照包含经过校验的对象，共享 ref 更新拥有事务级审计记录。
 - **实现便于阅读。** 运行时仅使用 Python 标准库。只有可选的历史导入功能需要 Git。
 
 ## 快速开始
@@ -139,6 +140,23 @@ Changeset 保存父版本、相对于第一父版本的文件增量、根树 ID 
 
 [架构文档](docs/ARCHITECTURE.md) 详细解释了存储布局、并发、合并语义、工作副本保护和实现取舍。[HTTP API 文档](docs/API.md) 说明了无需检出文件的读写方式。
 
+### 源码结构
+
+```text
+open_scion/
+├── cli/              # Parsing, command handlers, and output
+│   └── commands/
+├── client/           # HTTP transport and verified object API
+├── graph/            # Generation-pruned traversal and metadata cache
+├── importers/        # Git history adapters
+├── operations/       # Inspection, text merging, and integration
+├── server/           # Routes, validation, admission control, and telemetry
+├── store/            # Objects, trees, changesets, refs, integrity, and snapshots
+└── workspace/        # Scanning, cache, process locks, journals, and recovery
+```
+
+每个子包通过简洁的门面提供公共接口，内部模块分别负责持久化、协议和文件系统操作。
+
 ## 命令
 
 运行 `scion COMMAND --help` 查看全部参数。工作区命令会从当前目录向父目录查找工作区。
@@ -159,6 +177,10 @@ Changeset 保存父版本、相对于第一父版本的文件增量、根树 ID 
 | 列出共享 ref | `scion refs` |
 | 导入 Git 历史 | `scion import-git PATH --server URL [--ref main] [--revision HEAD]` |
 | 校验服务端存储 | `scion fsck --data DIRECTORY` |
+| 创建仓库快照 | `scion backup --data DIRECTORY --output NEW_DIRECTORY` |
+| 恢复经过校验的快照 | `scion restore SNAPSHOT --data NEW_DIRECTORY` |
+| 查看 ref 审计历史 | `scion ref-log [--name main] [--limit N]` |
+| 恢复中断的更新 | `scion recover` |
 
 `land --expected none` 要求目标 ref 尚不存在。如果不传 `--expected`，客户端会先读取当前目标，并将这个快照用于比较并交换。Merge 和 rebase 创建 changeset 后更新工作区，不会推进共享 ref。
 
@@ -186,21 +208,40 @@ Git 导入将可达提交 DAG 转成 Scion changeset，在每条提交信息末�
 
 运行 `scion fsck --data DIRECTORY` 可以检查仓库一致性。[存储与并发](docs/ARCHITECTURE.md#concurrency-and-refs)、[工作副本更新](docs/ARCHITECTURE.md#update-protection)和 [HTTP 传输参考](docs/API.md#transport-and-authentication)介绍了具体运维方式。
 
+服务提供 `/ready` 仓库就绪检查，以及需要认证的 `/v1/metrics` 运行指标。通过
+`--max-workers`、`--max-inflight-bytes`、`--request-timeout` 配置请求准入，使用
+`--access-log` 输出 JSON 访问日志，并通过 `X-Request-ID` 关联请求。
+
+仓库提供 [Dockerfile](Dockerfile) 和 [Compose 配置](compose.yaml)，用于运行带持久化卷的容器服务。
+[运维指南](docs/OPERATIONS.md)说明部署、在线快照、校验恢复、审计历史和工作区恢复流程。
+
 ## 技术参考
 
 | 项目 | 规格 |
 | --- | --- |
 | 本地 blob 缓存 | 64 MiB，校验内容完整性，按最近使用情况淘汰。 |
 | HTTP 请求体 | 最大 16 MiB，包含原始 blob 上传。 |
+| 服务准入 | 默认最多 32 个并发 worker、64 MiB 已接纳请求体，两个上限可分别配置。 |
+| 图查询 | 按提交代数剪枝，复用最多 4,096 条不可变元数据缓存。 |
 | 原生文件模式 | 普通文件（`100644`）和可执行文件（`100755`）；保留二进制内容。 |
 | 服务端文本检查 | 不超过 1 MiB、20,000 行的 UTF-8 文件；重叠的二进制修改返回冲突。 |
 | 历史与搜索 | 沿第一父版本执行 log/blame，对选定文件进行字面子串搜索。 |
 | Rebase | 将一个 changeset 相对第一父版本的增量重放到指定版本。 |
-| 更新流程 | 下载并校验目标内容，保护本地修改，再更新文件和元数据。 |
+| 更新流程 | OS 进程锁、持久化暂存文件与日志、原子元数据提交，以及离线恢复。 |
 
 [架构指南](docs/ARCHITECTURE.md)介绍算法与存储格式；[API 参考](docs/API.md)介绍请求字段、响应结构、认证和错误处理。
 
 ## 开发
+
+开发工作按三个 [milestones](https://github.com/rizaust/open-scion/milestones) 组织：
+
+| 里程碑 | 重点 |
+| --- | --- |
+| [v0.2 — Reliable core](https://github.com/rizaust/open-scion/milestone/1) | 模块集成、持久化工作区恢复，以及仓库备份运维。 |
+| [v0.3 — Team collaboration](https://github.com/rizaust/open-scion/milestone/2) | 带权限范围的身份、幂等请求和受保护 ref 的落地策略。 |
+| [v0.4 — Storage and query scale](https://github.com/rizaust/open-scion/milestone/3) | 存储后端、批量对象传输、索引、垃圾回收和共享缓存。 |
+
+每个 issue 都包含具体范围与验收条件，可以通过 milestone 查看实现和集成进度。
 
 ```sh
 python -m unittest discover -s tests -v

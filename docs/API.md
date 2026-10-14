@@ -12,16 +12,20 @@ remote shell, filesystem export, or HTTP administration endpoint.
 - Each request body is limited to **16 MiB**, including a raw blob upload.
   URLs are limited to 8,192 characters and 16 query parameters. Duplicate query
   parameters, JSON keys, and unknown argument names are rejected.
-- The socket I/O timeout is 15 seconds. Responses close the connection.
+- The socket I/O inactivity timeout defaults to 15 seconds. Responses close the
+  connection. The server admits up to 32 concurrent connections and 64 MiB of
+  aggregate request-body bytes by default; both limits are configurable. Admission
+  exhaustion returns `503` with `Retry-After: 1`. The byte limit accounts for raw
+  bodies; configure process memory separately for parsing and repository work.
 - `SCION_TOKEN` configures the CLI's bearer token. With a configured server token,
-  every `/v1` endpoint requires `Authorization: Bearer TOKEN`. `/health` is public.
+  every `/v1` endpoint requires `Authorization: Bearer TOKEN`. `/health` and `/ready` are public.
   A token is mandatory when binding beyond loopback. The token grants full access
   to the repository; it is not a per-user identity or an ACL.
 - The server provides HTTP, not TLS. Use an HTTPS reverse proxy or an SSH tunnel
   for remote transport. Token strings must be printable ASCII without whitespace.
 - There is no CORS support. Cross-origin requests are rejected; unauthenticated
   loopback requests must use a loopback `Host` with the actual listening port.
-- Responses include `X-Content-Type-Options: nosniff` and normally
+- Responses include a server-generated `X-Request-ID`, `X-Content-Type-Options: nosniff`, and normally
   `Cache-Control: no-store`. Successful immutable blob and full-ID changeset
   reads use `private, max-age=31536000, immutable` and an ETag. Blob reads support
   `If-None-Match` with that ETag or `*`, returning `304` without a body.
@@ -77,6 +81,9 @@ returned directly, without a `data` wrapper.
 | Endpoint | Query parameters | Response |
 | --- | --- | --- |
 | `GET /health` | None | `{"status":"ok"}` |
+| `GET /ready` | None | Repository readiness; `503` when unavailable or draining |
+| `GET /v1/metrics` | None | Request, status, active worker, body admission, uptime, and configured limits |
+| `GET /v1/ref-log` | `[name]`, `[limit=50]` | Newest-first array of `{sequence, name, old, new, created_at}` |
 | `GET /v1/refs` | None | `{"main":"<changeset-id>"}` |
 | `GET /v1/stats` | None | Integer counts: `objects`, `blobs`, `trees`, `changesets`, `refs`, `compressed_bytes` |
 | `GET /v1/changesets/{revision}` | None | A changeset |
