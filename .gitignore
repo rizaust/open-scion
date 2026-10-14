@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.DS_Store
+.scion/
+.scion-server/
+.coverage
+htmlcov/
+.env
+.env.*
+*.sqlite*

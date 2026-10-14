@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-labelledby="title desc">
+  <title id="title">Open Scion — source control for an agent-filled world</title>
+  <desc id="desc">Immutable changes flow from many workspaces into a shared content-addressed source control service.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#20352f" stroke-width="1"/></pattern>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#091d18"/><stop offset="1" stop-color="#102923"/></linearGradient>
+  </defs>
+  <rect width="1280" height="440" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="440" rx="24" fill="url(#grid)" opacity=".5"/>
+  <rect x="64" y="58" width="160" height="30" rx="15" fill="#b8f397"/>
+  <text x="144" y="78" fill="#10251c" font-family="Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="2">OPEN SOURCE / 0.1</text>
+  <text x="60" y="182" fill="#f3f8ee" font-family="Arial,sans-serif" font-size="88" font-weight="700" letter-spacing="-4">open scion</text>
+  <text x="65" y="235" fill="#d1e2d7" font-family="Arial,sans-serif" font-size="25">Source control for an agent-filled world.</text>
+  <text x="65" y="306" fill="#8da99b" font-family="Arial,sans-serif" font-size="17">Independent implementation of the core architecture</text>
+  <text x="65" y="333" fill="#8da99b" font-family="Arial,sans-serif" font-size="17">published for Anthropic Scion.</text>
+  <text x="65" y="395" fill="#b8f397" font-family="monospace" font-size="13">IMMUTABLE CHANGES  /  THIN CLIENTS  /  SHARED TRUTH</text>
+  <g stroke="#86b58b" stroke-width="3" fill="none">
+    <path d="M840 118V220Q840 250 875 250H1080"/>
+    <path d="M960 94V182Q960 216 995 216H1080"/>
+    <path d="M884 336V290Q884 250 924 250"/>
+    <path d="M1050 344V288Q1050 250 1080 250"/>
+  </g>
+  <g fill="#173c2d" stroke="#b8f397" stroke-width="3">
+    <circle cx="840" cy="118" r="17"/><circle cx="960" cy="94" r="17"/>
+    <circle cx="884" cy="336" r="17"/><circle cx="1050" cy="344" r="17"/>
+    <circle cx="1100" cy="250" r="39" fill="#b8f397"/>
+  </g>
+  <path d="M1083 251l12 12 23-27" fill="none" stroke="#10251c" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#8da99b" font-family="monospace" font-size="13"><text x="808" y="82">agent</text><text x="938" y="56">CI</text><text x="852" y="380">human</text><text x="1090" y="317">main</text></g>
+</svg>
