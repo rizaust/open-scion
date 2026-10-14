@@ -58,4 +58,5 @@ class ScionRequestHandler(RoutingMixin, RequestValidationMixin, ResponseMixin, B
                 self.server.release_body(self._reserved_body_bytes)
             self.server.completed(request_id=self.request_id, method=getattr(self, "command", ""),
                                   path=getattr(self, "path", "<unread>"), status=self._status or 499,
-                                  started=self._started, remote_ip=self.client_address[0])
+                                  started=self._started, remote_ip=self.client_address[0],
+                                  actor_id=getattr(getattr(self, "principal", None), "id", None))

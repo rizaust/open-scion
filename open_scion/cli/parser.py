@@ -28,6 +28,28 @@ def _parser():
     serve.add_argument("--max-inflight-bytes", type=int, default=64 * 1024 * 1024,
                        help="Aggregate admitted HTTP request body bytes")
     serve.add_argument("--access-log", action="store_true", help="Write structured JSON access logs to stderr")
+    serve.add_argument("--auth-file", help="Hashed credential configuration with scoped identities")
+    serve.add_argument("--ref-policy", help="Protected-ref policy configuration")
+    serve.add_argument("--idempotency-retention", type=int, default=604800, help="Seconds to retain successful mutation results")
+    serve.add_argument("--idempotency-max-records", type=int, default=100000, help="Maximum retained mutation results")
+    serve.add_argument("--idempotency-max-result-bytes", type=int, default=1048576, help="Maximum stored JSON bytes per result")
+
+    auth = command("auth", "Generate credentials or inspect hashed token configuration")
+    auth_commands = auth.add_subparsers(dest="auth_command", required=True)
+    token = auth_commands.add_parser("token", help="Generate a bearer token and its hashed configuration record")
+    token.add_argument("--id", required=True, help="Stable authenticated identity")
+    token.add_argument("--capability", action="append", default=[], choices=("read", "object-write", "changeset-write", "ref-update", "admin"))
+    token.add_argument("--ref", action="append", default=[], help="Authorized ref glob; repeat for multiple scopes")
+    token.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    inspect = auth_commands.add_parser("inspect", help="Describe configured identities without showing token hashes")
+    inspect.add_argument("file")
+    inspect.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+
+    identity = command("identity", "Inspect the current authenticated identity")
+    identity.add_argument("--server", help="Server URL; defaults to the current workspace")
+    policy = command("policy", "Inspect the effective rule for a shared ref")
+    policy.add_argument("name", nargs="?", default="main")
+    policy.add_argument("--server", help="Server URL; defaults to the current workspace")
 
     init = command("init", "Create an empty or sparse native workspace")
     init.add_argument("directory")

@@ -25,6 +25,7 @@ class ResponseMixin:
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Request-ID", self.request_id)
+        self.send_header("Scion-Capabilities", "idempotency-v1")
         self.send_header("Cache-Control", (headers or {}).get("Cache-Control", "no-store"))
         self.send_header("Connection", "close")
         for name, value in (headers or {}).items():

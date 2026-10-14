@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 import json
 import re
 import socket
@@ -10,20 +9,12 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..store import ScionError
+from .authorization import RequestAuthorizationMixin
 from .config import MAX_BODY_BYTES, MAX_RESULT_LIMIT, MAX_URL_BYTES, _BAD_PERCENT, _loopback_host
 
 
-class RequestValidationMixin:
+class RequestValidationMixin(RequestAuthorizationMixin):
     """Validate transport and payload boundaries before invoking repository operations."""
-
-    def _authenticate(self, path: str) -> None:
-        if self.server.token is None or not (path == "/v1" or path.startswith("/v1/")):
-            return
-        provided = self.headers.get_all("Authorization", [])
-        expected = "Bearer " + self.server.token
-        if len(provided) != 1 or not hmac.compare_digest(
-                provided[0].encode("utf-8"), expected.encode("utf-8")):
-            raise ScionError("A valid bearer token is required", "unauthorized", 401)
 
     def _check_origin(self) -> None:
         hosts = self.headers.get_all("Host", [])
@@ -32,7 +23,7 @@ class RequestValidationMixin:
         host = hosts[0] if hosts else ""
         if self.request_version == "HTTP/1.1" and not host:
             raise ScionError("Host header is required")
-        if self.server.loopback and self.server.token is None and host:
+        if self.server.loopback and not self.server.auth_manager.enabled and host:
             try:
                 parsed = urlsplit("http://" + host)
                 safe = (not parsed.username and not parsed.password and not parsed.path

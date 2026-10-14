@@ -1,10 +1,12 @@
 """Explicit command dispatch across repository, workspace, and query groups."""
 
 from ...store import ScionError
-from . import queries, service, workspace
+from . import queries, security, service, workspace
 
 
 def run(args):
+    if args.command in security.COMMANDS:
+        return security.run(args)
     if args.command in service.COMMANDS:
         return service.run(args)
     if args.command in workspace.COMMANDS:

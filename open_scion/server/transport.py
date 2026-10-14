@@ -10,7 +10,9 @@ from collections import Counter
 from http.server import ThreadingHTTPServer
 
 from ..operations import Operations
+from ..security.identity import AuthManager
 from ..store import Store
+from ..store.errors import ScionError
 from .config import MAX_URL_BYTES, _loopback_host
 from .handler import ScionRequestHandler
 from .readiness import ReadinessMixin
@@ -25,11 +27,16 @@ class ScionHTTPServer(TelemetryMixin, ReadinessMixin, ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, store: Store, host: str, port: int, token: str | None,
-                 max_workers: int, request_timeout: float, max_inflight_bytes: int):
+                 max_workers: int, request_timeout: float, max_inflight_bytes: int,
+                 auth_file=None):
         self.store = store
         self.operations = Operations(store)
-        self.token = token
         self.loopback = _loopback_host(host)
+        self.auth_manager = AuthManager(token=token, auth_file=auth_file)
+        self.auth_file = self.auth_manager.auth_file
+        self._token = token
+        if not self.loopback and not self.auth_manager.enabled:
+            raise ScionError("Authentication is required when binding beyond loopback", "forbidden", 403)
         self.max_workers = max_workers
         self.request_timeout = float(request_timeout)
         self.max_inflight_bytes = max_inflight_bytes
@@ -44,6 +51,19 @@ class ScionHTTPServer(TelemetryMixin, ReadinessMixin, ThreadingHTTPServer):
         if ":" in host:
             self.address_family = socket.AF_INET6
         super().__init__((host, port), ScionRequestHandler)
+
+    @property
+    def token(self):
+        """Retain the legacy in-memory token configuration interface."""
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        manager = AuthManager(token=value, auth_file=self.auth_file)
+        if not self.loopback and not manager.enabled:
+            raise ScionError("Authentication is required when binding beyond loopback", "forbidden", 403)
+        self.auth_manager = manager
+        self._token = value
 
     def reserve_body(self, size: int) -> bool:
         with self._state:
@@ -73,6 +93,7 @@ class ScionHTTPServer(TelemetryMixin, ReadinessMixin, ThreadingHTTPServer):
                         "Content-Type: application/json; charset=utf-8\r\n"
                         f"Content-Length: {len(data)}\r\n"
                         f"X-Request-ID: {request_id}\r\n"
+                        "Scion-Capabilities: idempotency-v1\r\n"
                         "Retry-After: 1\r\nCache-Control: no-store\r\n"
                         "X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n")
             request.settimeout(min(self.request_timeout, 0.1))

@@ -42,7 +42,9 @@ def _load_manifest(snapshot: Path) -> dict:
             if isinstance(entry["size"], bool) or not isinstance(entry["size"], int) or entry["size"] < 0:
                 raise ValueError("Invalid file size")
         counts = manifest.get("counts")
-        if not isinstance(counts, dict) or set(counts) != {"objects", "changesets", "refs", "ref_events"}:
+        required_counts = {"objects", "changesets", "refs", "ref_events"}
+        if (not isinstance(counts, dict) or not required_counts <= set(counts)
+                or set(counts) - required_counts - {"idempotency_records"}):
             raise ValueError("Invalid snapshot counts")
         if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in counts.values()):
             raise ValueError("Invalid snapshot count")

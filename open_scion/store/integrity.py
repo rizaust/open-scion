@@ -1,10 +1,10 @@
 """Repository statistics and snapshot-consistent integrity verification."""
 from __future__ import annotations
 
-from datetime import datetime
 import sqlite3
 
 from .errors import ScionError
+from .mutation_integrity import read_audit, verify_audit, verify_idempotency
 from .validation import validate_ref
 
 
@@ -27,9 +27,11 @@ class IntegrityStoreMixin:
         changesets = {}
         refs = []
         audit = []
+        idempotency_records = 0
         try:
             with self._connection() as db:
-                db.execute("BEGIN")
+                if not db.in_transaction:
+                    db.execute("BEGIN")
                 # Establish the WAL snapshot before enumerating object files.
                 rows = list(db.execute("SELECT id FROM changesets"))
                 for result in db.execute("PRAGMA integrity_check"):
@@ -43,8 +45,8 @@ class IntegrityStoreMixin:
                     except (ScionError, TypeError, KeyError, ValueError) as exc:
                         errors.append(str(exc))
                 refs = list(db.execute("SELECT name,target FROM refs"))
-                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ref_audit'").fetchone():
-                    audit = list(db.execute("SELECT sequence,name,old_target,new_target,created_at FROM ref_audit ORDER BY sequence"))
+                audit = read_audit(db)
+                idempotency_records = verify_idempotency(db, errors)
         except (OSError, sqlite3.DatabaseError, ScionError) as exc:
             errors.append(f"Metadata: {exc}")
         pending = []
@@ -92,22 +94,7 @@ class IntegrityStoreMixin:
                 errors.append(f"Changeset {oid} references missing parent")
             elif record["generation"] != max((changesets[p]["generation"] for p in parents), default=-1) + 1:
                 errors.append(f"Changeset {oid} has invalid generation")
-        audit_targets = {}
-        for sequence, name, old, new, created_at in audit:
-            try:
-                validate_ref(name)
-                if not isinstance(created_at, str) or not created_at.endswith("Z"):
-                    raise ValueError("Invalid UTC timestamp")
-                datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                if new not in changesets or old is not None and old not in changesets:
-                    raise ValueError("Missing changeset")
-                if name in audit_targets and old != audit_targets[name]:
-                    raise ValueError("Discontinuous ref history")
-                audit_targets[name] = new
-            except (ScionError, ValueError, TypeError) as exc:
-                errors.append(f"Ref audit {sequence}: {exc}")
-        for name, target in audit_targets.items():
-            if ref_targets.get(name) != target:
-                errors.append(f"Ref audit disagrees with current ref {name!r}")
+        verify_audit(audit, changesets, ref_targets, errors)
         return {"ok": not errors, "errors": errors, "objects": len(object_kinds),
-                "changesets": len(changesets), "refs": len(refs), "ref_events": len(audit)}
+                "changesets": len(changesets), "refs": len(refs), "ref_events": len(audit),
+                "idempotency_records": idempotency_records}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..store import ScionError
+from ..store import ScionError, validate_ref
 from .config import _OBJECT_ID
 
 
@@ -23,6 +23,16 @@ class ReadRoutesMixin:
         elif path == "/v1/metrics":
             self._fields(query)
             self._send(200, self.server.metrics())
+        elif path == "/v1/identity":
+            self._fields(query)
+            self._send(200, {"id": self.principal.id,
+                             "capabilities": sorted(self.principal.capabilities),
+                             "refs": list(self.principal.refs)})
+        elif path == "/v1/ref-policy":
+            self._fields(query, ("name",))
+            name = validate_ref(query["name"])
+            policy = store.ref_policy
+            self._send(200, policy.describe(name) if policy else {"ref": name, "matched": False, "rule": None})
         elif path == "/v1/ref-log":
             self._fields(query, (), ("name", "limit"))
             self._text(query, "name")

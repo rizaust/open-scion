@@ -34,6 +34,7 @@
 - **直接向服务端提问。** diff、历史、合并、rebase、blame 和搜索均提供 HTTP 接口。CI 可以不创建工作副本，直接调用 API。
 - **复用不可变内容。** 使用 SHA-256 标识去重 blob 和持久化树节点。客户端下载后校验内容，并维护容量有限的本地缓存。
 - **恢复与审计变更。** 工作副本日志支持中断恢复，仓库快照包含经过校验的对象，共享 ref 更新拥有事务级审计记录。
+- **支持团队协作。** 身份与权限范围控制写入，受保护 ref 执行发布规则，持久化幂等键在重试时保留原始成功结果。
 - **实现便于阅读。** 运行时仅使用 Python 标准库。只有可选的历史导入功能需要 Git。
 
 ## 快速开始
@@ -151,6 +152,7 @@ open_scion/
 ├── importers/        # Git history adapters
 ├── operations/       # Inspection, text merging, and integration
 ├── server/           # Routes, validation, admission control, and telemetry
+├── security/         # Scoped identities and protected-ref policies
 ├── store/            # Objects, trees, changesets, refs, integrity, and snapshots
 └── workspace/        # Scanning, cache, process locks, journals, and recovery
 ```
@@ -181,6 +183,8 @@ open_scion/
 | 恢复经过校验的快照 | `scion restore SNAPSHOT --data NEW_DIRECTORY` |
 | 查看 ref 审计历史 | `scion ref-log [--name main] [--limit N]` |
 | 恢复中断的更新 | `scion recover` |
+| 查看认证身份 | `scion identity [--server URL]` |
+| 查看 ref 保护规则 | `scion policy [NAME] [--server URL]` |
 
 `land --expected none` 要求目标 ref 尚不存在。如果不传 `--expected`，客户端会先读取当前目标，并将这个快照用于比较并交换。Merge 和 rebase 创建 changeset 后更新工作区，不会推进共享 ref。
 
@@ -214,6 +218,10 @@ Git 导入将可达提交 DAG 转成 Scion changeset，在每条提交信息末�
 
 仓库提供 [Dockerfile](Dockerfile) 和 [Compose 配置](compose.yaml)，用于运行带持久化卷的容器服务。
 [运维指南](docs/OPERATIONS.md)说明部署、在线快照、校验恢复、审计历史和工作区恢复流程。
+
+团队服务可通过 `--auth-file` 配置[身份与权限范围](docs/AUTHENTICATION.md)，并通过
+`--ref-policy` 配置[受保护 ref 规则](docs/POLICIES.md)。结构化写入支持
+[持久化幂等键](docs/IDEMPOTENCY.md)，请求结果与仓库元数据、ref 审计事件在同一事务中提交。
 
 ## 技术参考
 

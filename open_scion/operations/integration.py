@@ -82,12 +82,15 @@ class IntegrationOperations:
         if current != expected:
             raise ScionError("Ref changed; fetch the current target and retry", code="stale_ref", status=409,
                              details={"expected": expected, "actual": current})
+        operation = "land"
         if current is None or self.graph.is_ancestor(current, revision):
             landed = self.store.get_changeset(revision)
         elif self.graph.is_ancestor(revision, current):
             landed = self.store.get_changeset(current)
         else:
+            operation = "land-merge"
             landed = self.merge(None, current, revision,
                                 "Land: " + self.store.get_changeset(revision)["message"], author)
-        updated = self.store.update_ref(ref, landed["id"], expected)
+        with self.store.operation_scope(operation):
+            updated = self.store.update_ref(ref, landed["id"], expected)
         return {"changeset": landed, "ref": updated}

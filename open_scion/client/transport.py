@@ -49,6 +49,14 @@ class HTTPTransport:
         if capabilities is not None:
             self._idempotency_supported = "idempotency-v1" in {item.strip() for item in capabilities.split(",")}
 
+    def _mutation_error_details(self, key, attempt, details=None):
+        if key is None:
+            return details
+        result = dict(details) if isinstance(details, dict) else ({"server_details": details} if details is not None else {})
+        result.update({"idempotency_key": key, "attempts": attempt + 1,
+                       "replay_supported": self._idempotency_supported})
+        return result
+
     @staticmethod
     def _wait(attempt, headers=None):
         delay = min(0.1 * 2 ** attempt, 1.0)
@@ -65,7 +73,7 @@ class HTTPTransport:
         if not path.startswith("/") or path.startswith("//"):
             raise ScionError("API path must start with one slash")
         structured_write = method == "POST" and body is not None and not isinstance(body, bytes)
-        if idempotency_key is not None and (not structured_write or not _KEY.fullmatch(idempotency_key)):
+        if idempotency_key is not None and (not structured_write or not isinstance(idempotency_key, str) or not _KEY.fullmatch(idempotency_key)):
             raise ScionError("A valid Idempotency-Key can only be used for a structured POST")
         key = idempotency_key or (uuid.uuid4().hex if structured_write else None)
         headers = {"Accept": "application/octet-stream" if raw else "application/json"}
@@ -93,7 +101,8 @@ class HTTPTransport:
                 try:
                     return json.loads(payload)
                 except ValueError as exc:
-                    raise ScionError("Server returned invalid JSON", code="protocol", status=502) from exc
+                    raise ScionError("Server returned invalid JSON", code="protocol", status=502,
+                                     details=self._mutation_error_details(key, attempt)) from exc
             except HTTPError as exc:
                 self._capabilities(exc.headers)
                 can_retry = intrinsically_safe or key is not None and self._idempotency_supported
@@ -111,7 +120,7 @@ class HTTPTransport:
                     exc.close()
                 raise ScionError(detail.get("message", f"Server returned HTTP {exc.code}"),
                                  code=detail.get("code", "http_error"), status=exc.code,
-                                 details=detail.get("details")) from exc
+                                 details=self._mutation_error_details(key, attempt, detail.get("details"))) from exc
             except (URLError, TimeoutError, OSError, HTTPException) as exc:
                 can_retry = intrinsically_safe or key is not None and self._idempotency_supported
                 if can_retry and attempt < self.retries:

@@ -79,8 +79,7 @@ class ChangesetStoreMixin:
                 raise ScionError(f"Invalid regular-file entry: {path}")
             self.get_blob(entry["blob"])
             normalized[path] = {"blob": entry["blob"], "mode": entry["mode"]}
-        with self._connection() as db:
-            db.execute("BEGIN IMMEDIATE")
+        with self._write_transaction() as db:
             parent_records = [self._get_changeset(db, parent) for parent in parents]
             parent_ids = [parent["id"] for parent in parent_records]
             if len(set(parent_ids)) != len(parent_ids):
@@ -104,7 +103,6 @@ class ChangesetStoreMixin:
             oid = _identity("changeset", record)
             db.execute("INSERT INTO changesets(id,data,tree,generation) VALUES(?,?,?,?)",
                        (oid, _json(record).decode("utf-8"), tree, record["generation"]))
-            db.commit()
         return {"id": oid, **record}
 
     def log(self, revision: str, limit: int = 50, path: str | None = None) -> list[dict]:
@@ -114,7 +112,8 @@ class ChangesetStoreMixin:
             validate_path(path)
         output = []
         with self._connection() as db:
-            db.execute("BEGIN")
+            if not db.in_transaction:
+                db.execute("BEGIN")
             current = self._get_changeset(db, revision)
             while len(output) < limit:
                 if path is None or any(name == path or name.startswith(path + "/") for name in current["changes"]):

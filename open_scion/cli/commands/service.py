@@ -23,7 +23,10 @@ def run(args):
             logger.propagate = False
         serve(args.data, host=args.host, port=args.port, token=os.environ.get("SCION_TOKEN"),
               max_workers=args.max_workers, request_timeout=args.request_timeout,
-              max_inflight_bytes=args.max_inflight_bytes)
+              max_inflight_bytes=args.max_inflight_bytes, auth_file=args.auth_file,
+              ref_policy=args.ref_policy, idempotency_retention_seconds=args.idempotency_retention,
+              idempotency_max_records=args.idempotency_max_records,
+              idempotency_max_result_bytes=args.idempotency_max_result_bytes)
         return None
     if args.command == "fsck":
         return Store(args.data, read_only=True).fsck()

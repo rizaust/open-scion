@@ -6,6 +6,10 @@ remote shell, filesystem export, or HTTP administration endpoint.
 
 ## Transport and authentication
 
+See [Identities and capabilities](AUTHENTICATION.md) for scoped credentials and the
+endpoint authorization matrix. Shared-token deployments retain the `legacy`
+identity; `--auth-file` enables named identities and ref-scoped writes.
+
 - JSON requests use `Content-Type: application/json`; blob uploads use
   `Content-Type: application/octet-stream`. JSON responses are UTF-8.
 - POST requests require `Content-Length`. Chunked request bodies are rejected.
@@ -83,7 +87,9 @@ returned directly, without a `data` wrapper.
 | `GET /health` | None | `{"status":"ok"}` |
 | `GET /ready` | None | Repository readiness; `503` when unavailable or draining |
 | `GET /v1/metrics` | None | Request, status, active worker, body admission, uptime, and configured limits |
-| `GET /v1/ref-log` | `[name]`, `[limit=50]` | Newest-first array of `{sequence, name, old, new, created_at}` |
+| `GET /v1/identity` | None | Authenticated `id`, `capabilities`, and `refs` |
+| `GET /v1/ref-policy` | `name` | Effective protected-ref rule |
+| `GET /v1/ref-log` | `[name]`, `[limit=50]` | Newest-first array of `{sequence, name, old, new, created_at, actor, operation, policy}` |
 | `GET /v1/refs` | None | `{"main":"<changeset-id>"}` |
 | `GET /v1/stats` | None | Integer counts: `objects`, `blobs`, `trees`, `changesets`, `refs`, `compressed_bytes` |
 | `GET /v1/changesets/{revision}` | None | A changeset |

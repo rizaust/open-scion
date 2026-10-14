@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger("open_scion.server")
 
 
 def _allowed_methods(path: str) -> tuple[str, ...]:
-    if path in {"/health", "/ready", "/v1/metrics", "/v1/ref-log",
+    if path in {"/health", "/ready", "/v1/metrics", "/v1/ref-log", "/v1/identity", "/v1/ref-policy",
                 "/v1/refs", "/v1/stats", "/v1/tree", "/v1/log", "/v1/diff",
                 "/v1/merge-base", "/v1/blame", "/v1/search"} or any(
             path.startswith(prefix) and len(path) > len(prefix)

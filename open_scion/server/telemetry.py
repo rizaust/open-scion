@@ -42,7 +42,7 @@ class TelemetryMixin:
                     "request_timeout_seconds": self.request_timeout, "draining": self._draining}
 
     def completed(self, *, request_id: str, method: str, path: str, status: int,
-                  started: float, remote_ip: str) -> None:
+                  started: float, remote_ip: str, actor_id: str | None = None) -> None:
         status = status if 100 <= status <= 599 else 500
         with self._state:
             self._statuses[str(status)] += 1
@@ -50,4 +50,6 @@ class TelemetryMixin:
                   "path": _access_path(path), "status": status,
                   "duration_ms": round((time.monotonic() - started) * 1000, 3),
                   "remote_ip": remote_ip}
+        if actor_id is not None:
+            record["actor_id"] = actor_id
         _ACCESS_LOGGER.info(json.dumps(record, ensure_ascii=True, separators=(",", ":")))

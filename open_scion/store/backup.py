@@ -38,6 +38,8 @@ def _snapshot_objects(source: Store, snapshot: Store) -> set[str]:
 
 def create_backup(store: Store, destination) -> dict:
     """Snapshot all committed changesets and their objects, including unlanded work."""
+    if store._active_write() is not None:
+        raise ScionError("Backup must run outside an active mutation", "transaction_context", 409)
     target = _new_destination(destination)
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.backup-", dir=target.parent))
     try:
@@ -59,7 +61,7 @@ def create_backup(store: Store, destination) -> dict:
         check = snapshot.fsck()
         if not check["ok"]:
             raise ScionError("Snapshot integrity verification failed", "corrupt", 500, check)
-        counts = {key: check[key] for key in ("objects", "changesets", "refs", "ref_events")}
+        counts = {key: check[key] for key in ("objects", "changesets", "refs", "ref_events", "idempotency_records")}
         created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
         manifest = {"format": _FORMAT, "format_version": _VERSION, "created_at": created_at,
                     "files": files, "counts": counts}

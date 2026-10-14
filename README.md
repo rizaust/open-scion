@@ -34,6 +34,7 @@ Built independently from the architectural ideas in Anthropic's October 13, 2026
 - **Ask the server.** Diff, history, merge, rebase, blame, and search are HTTP operations. A CI job can use the API without creating a working copy.
 - **Reuse immutable content.** SHA-256 identities deduplicate blobs and persistent tree nodes. Clients verify downloaded content and retain a bounded local cache.
 - **Recover and audit changes.** Working-copy journals support interrupted-update recovery, repository snapshots include verified objects, and shared-ref updates have a transactional audit trail.
+- **Coordinate a team.** Scoped identities authorize mutations, protected refs apply publication rules, and durable idempotency keys preserve successful results across retries.
 - **Read the whole implementation.** The runtime uses Python's standard library. Git is needed only for the optional history importer.
 
 ## Quickstart
@@ -151,6 +152,7 @@ open_scion/
 ├── importers/        # Git history adapters
 ├── operations/       # Inspection, text merging, and integration
 ├── server/           # Routes, validation, admission control, and telemetry
+├── security/         # Scoped identities and protected-ref policies
 ├── store/            # Objects, trees, changesets, refs, integrity, and snapshots
 └── workspace/        # Scanning, cache, process locks, journals, and recovery
 ```
@@ -182,6 +184,8 @@ Run `scion COMMAND --help` for every flag. Workspace commands discover the works
 | Restore a verified snapshot | `scion restore SNAPSHOT --data NEW_DIRECTORY` |
 | Inspect ref audit history | `scion ref-log [--name main] [--limit N]` |
 | Recover an interrupted update | `scion recover` |
+| Inspect authenticated identity | `scion identity [--server URL]` |
+| Inspect ref protection | `scion policy [NAME] [--server URL]` |
 
 `land --expected none` requires a new ref. Without `--expected`, the client reads the current target and uses that snapshot for the compare-and-swap. Merge and rebase create a changeset and update the workspace; they leave shared refs unchanged.
 
@@ -218,6 +222,11 @@ Use the supplied [Dockerfile](Dockerfile) and [Compose configuration](compose.ya
 for a persistent container service. The [operations guide](docs/OPERATIONS.md)
 covers deployment, live snapshots, verified restore, audit history, and workspace
 recovery.
+
+For team services, use `--auth-file` with [scoped identities](docs/AUTHENTICATION.md)
+and `--ref-policy` with [protected-ref rules](docs/POLICIES.md). Structured writes
+support [durable idempotency keys](docs/IDEMPOTENCY.md), with results committed in
+the same transaction as repository metadata and ref audit events.
 
 ## Technical reference
 

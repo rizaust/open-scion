@@ -1,26 +1,36 @@
 """Repository lifecycle and the public Store facade."""
 from __future__ import annotations
 
-from contextlib import contextmanager
 from pathlib import Path
-import sqlite3
-from typing import Iterator
 
+from .actors import ActorStoreMixin
 from .changesets import ChangesetStoreMixin
 from .codec import _identity
 from .errors import ScionError
+from .idempotency import (DEFAULT_MAX_RECORDS, DEFAULT_MAX_RESULT_BYTES, DEFAULT_RETENTION_SECONDS,
+                          IdempotencyStoreMixin)
 from .integrity import IntegrityStoreMixin
 from .objects import ObjectStoreMixin
 from .refs import RefStoreMixin
+from .schema import initialize_schema
+from .transactions import TransactionStoreMixin
 from .trees import TreeStoreMixin
 
 
-class Store(ObjectStoreMixin, TreeStoreMixin, ChangesetStoreMixin, RefStoreMixin, IntegrityStoreMixin):
+class Store(ObjectStoreMixin, TreeStoreMixin, ChangesetStoreMixin, RefStoreMixin,
+            IntegrityStoreMixin, IdempotencyStoreMixin, ActorStoreMixin, TransactionStoreMixin):
     """Thread-safe storage using atomic object installation and SQLite WAL."""
 
-    def __init__(self, root, *, read_only: bool = False):
+    def __init__(self, root, *, read_only: bool = False,
+                 idempotency_retention_seconds: int = DEFAULT_RETENTION_SECONDS,
+                 idempotency_max_records: int = DEFAULT_MAX_RECORDS,
+                 idempotency_max_result_bytes: int = DEFAULT_MAX_RESULT_BYTES):
         self.root = Path(root).expanduser().absolute()
         self.read_only = read_only
+        self._initialize_transactions()
+        self._initialize_actors()
+        self._configure_idempotency(idempotency_retention_seconds, idempotency_max_records,
+                                    idempotency_max_result_bytes)
         if read_only and not self.root.is_dir():
             raise ScionError("Repository does not exist", "not_found", 404)
         if not read_only:
@@ -47,63 +57,8 @@ class Store(ObjectStoreMixin, TreeStoreMixin, ChangesetStoreMixin, RefStoreMixin
             return
         with self._connection() as db:
             db.execute("PRAGMA journal_mode=WAL")
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS metadata (
-                    key TEXT PRIMARY KEY, value TEXT NOT NULL
-                );
-                INSERT OR IGNORE INTO metadata VALUES ('schema_version', '1');
-                CREATE TABLE IF NOT EXISTS changesets (
-                    id TEXT PRIMARY KEY,
-                    data TEXT NOT NULL,
-                    tree TEXT NOT NULL,
-                    generation INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS refs (
-                    name TEXT PRIMARY KEY,
-                    target TEXT NOT NULL REFERENCES changesets(id)
-                );
-                CREATE TABLE IF NOT EXISTS ref_audit (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    old_target TEXT REFERENCES changesets(id),
-                    new_target TEXT NOT NULL REFERENCES changesets(id),
-                    created_at TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS ref_audit_name_sequence
-                    ON ref_audit(name, sequence);
-                CREATE TRIGGER IF NOT EXISTS immutable_ref_audit_update
-                BEFORE UPDATE ON ref_audit BEGIN
-                    SELECT RAISE(ABORT, 'ref audit records are immutable');
-                END;
-                CREATE TRIGGER IF NOT EXISTS immutable_ref_audit_delete
-                BEFORE DELETE ON ref_audit BEGIN
-                    SELECT RAISE(ABORT, 'ref audit records are immutable');
-                END;
-                CREATE TRIGGER IF NOT EXISTS immutable_changeset_update
-                BEFORE UPDATE ON changesets BEGIN
-                    SELECT RAISE(ABORT, 'changesets are immutable');
-                END;
-                CREATE TRIGGER IF NOT EXISTS immutable_changeset_delete
-                BEFORE DELETE ON changesets BEGIN
-                    SELECT RAISE(ABORT, 'changesets are immutable');
-                END;
-            """)
-            version = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0]
-            if version != "1":
-                raise ScionError(f"Unsupported storage schema: {version}", "unsupported", 500)
+            initialize_schema(db)
         self._empty_tree = self._write_tree({})
-
-    @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
-        location = self.db_path.as_uri() + "?mode=ro" if self.read_only else self.db_path
-        db = sqlite3.connect(location, uri=self.read_only, timeout=30, isolation_level=None)
-        try:
-            db.execute("PRAGMA foreign_keys=ON")
-            db.execute("PRAGMA busy_timeout=30000")
-            db.execute("PRAGMA synchronous=FULL")
-            yield db
-        finally:
-            db.close()
 
     def backup(self, destination) -> dict:
         """Publish a verified online snapshot containing all committed changesets."""
