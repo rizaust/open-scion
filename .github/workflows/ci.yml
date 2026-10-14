@@ -19,3 +19,39 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q open_scion
       - run: scion --help
+  container:
+    runs-on: ubuntu-latest
+    env:
+      SCION_TOKEN: ci-smoke-test-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build container
+        run: docker build -t open-scion:ci .
+      - name: Start isolated service
+        run: >-
+          docker run -d --name scion --env SCION_TOKEN
+          --publish 127.0.0.1:7433:7433 --read-only --cap-drop ALL
+          --security-opt no-new-privileges
+          --tmpfs /tmp:size=32m,mode=1777
+          --mount source=scion-ci-data,target=/var/lib/open-scion
+          open-scion:ci
+      - name: Exercise service API
+        run: python tests/container_smoke.py
+      - name: Verify live backup and restore
+        run: |
+          docker exec scion scion backup --data /var/lib/open-scion --output /tmp/snapshot
+          docker exec scion scion restore /tmp/snapshot --data /tmp/restored
+          docker exec scion scion fsck --data /tmp/restored
+      - name: Restart service and verify persistent volume
+        run: |
+          docker restart --time 25 scion
+          python tests/container_smoke.py verify
+      - name: Service diagnostics
+        if: failure()
+        run: docker logs scion
+      - name: Stop service
+        if: always()
+        run: docker rm -f scion

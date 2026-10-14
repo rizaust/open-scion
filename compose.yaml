@@ -1,0 +1,24 @@
+services:
+  scion:
+    build: .
+    image: open-scion:local
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SCION_TOKEN: ${SCION_TOKEN:?Set SCION_TOKEN before starting the service}
+    ports:
+      - "127.0.0.1:7433:7433"
+    volumes:
+      - scion-data:/var/lib/open-scion
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    stop_grace_period: 30s
+
+volumes:
+  scion-data:

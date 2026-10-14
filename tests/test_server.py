@@ -292,7 +292,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(records[0]["name"], "main")
         self.assertIsNone(records[0]["old"])
         self.assertEqual(records[0]["new"], initial["id"])
-        for path in ("/v1/ref-log", "/v1/ref-log?name=", "/v1/ref-log?name=main&limit=1001"):
+        for path in ("/v1/ref-log?name=", "/v1/ref-log?name=main&limit=1001"):
             self.assert_error(self.request("GET", path), 400)
 
     def test_worker_and_timeout_configuration_validation(self):

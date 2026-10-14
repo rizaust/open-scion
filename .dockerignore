@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!pyproject.toml
+!README.md
+!LICENSE
+!open_scion/
+!open_scion/**
+open_scion/**/__pycache__/
+open_scion/**/*.pyc

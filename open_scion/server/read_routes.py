@@ -24,9 +24,9 @@ class ReadRoutesMixin:
             self._fields(query)
             self._send(200, self.server.metrics())
         elif path == "/v1/ref-log":
-            self._fields(query, ("name",), ("limit",))
+            self._fields(query, (), ("name", "limit"))
             self._text(query, "name")
-            self._send(200, store.ref_log(query["name"], self._limit(query, 50)))
+            self._send(200, store.ref_log(query.get("name"), self._limit(query, 50)))
         elif path == "/v1/refs":
             self._fields(query)
             self._send(200, store.list_refs())

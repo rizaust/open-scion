@@ -30,8 +30,11 @@ class ObjectStoreMixin:
         path = self._object_path(oid)
         if path.exists():
             self._read_object(oid, kind)
+            self._sync_object_directory(path.parent)
             return oid
         path.parent.mkdir(exist_ok=True)
+        # Persist the prefix directory entry before any metadata can reference it.
+        self._sync_object_directory(self.objects)
         fd, temporary = tempfile.mkstemp(prefix=".tmp-", dir=path.parent)
         try:
             with os.fdopen(fd, "wb") as stream:
@@ -40,17 +43,21 @@ class ObjectStoreMixin:
                 os.fsync(stream.fileno())
             try:
                 os.link(temporary, path)
-                if os.name != "nt":
-                    directory_fd = os.open(path.parent, os.O_RDONLY)
-                    try:
-                        os.fsync(directory_fd)
-                    finally:
-                        os.close(directory_fd)
             except FileExistsError:
                 self._read_object(oid, kind)
+            self._sync_object_directory(path.parent)
         finally:
             os.unlink(temporary)
         return oid
+
+    @staticmethod
+    def _sync_object_directory(directory: Path) -> None:
+        if os.name != "nt":
+            descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
 
     def _read_object(self, oid: str, kind: str | None = None) -> tuple[str, bytes]:
         path = self._object_path(oid)
