@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#102923" />
+    <meta
+      name="description"
+      content="Open Scion is independent, server-first source control for humans, coding agents, and CI. Immutable changesets, thin workspaces, and atomic refs. An open-source single-node alpha."
+    />
+    <meta
+      property="og:title"
+      content="Open Scion — Source control for an agent-filled world"
+    />
+    <meta
+      property="og:description"
+      content="Immutable changes. Thin clients. Shared truth. Independent, open-source source control for humans, coding agents, and CI."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://rizaust.github.io/open-scion/" />
+    <title>Open Scion — Source control for an agent-filled world</title>
+    <link rel="icon" type="image/svg+xml" href="assets/icon.svg" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="main.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a href="#" class="brand" aria-label="Open Scion home">
+        <svg viewBox="0 0 36 44" aria-hidden="true">
+          <path d="M10 8v28M10 28h9c7 0 9-7 9-11" />
+          <circle cx="10" cy="7" r="4" />
+          <circle cx="10" cy="36" r="4" />
+          <circle cx="28" cy="16" r="4" />
+        </svg>
+        <span>open scion</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#architecture">Architecture</a>
+        <a href="#get-started">Get started</a>
+        <a href="https://github.com/rizaust/open-scion"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">
+            Source control<br />for an agent-filled<br />world.
+          </h1>
+          <p class="hero-lead">
+            Immutable changes. Thin clients. Shared truth.
+          </p>
+          <p class="hero-description">
+            An independent implementation of the core architecture published for
+            Anthropic Scion.
+          </p>
+          <div class="actions">
+            <a class="button button-dark" href="#get-started"
+              >Get started <span aria-hidden="true">↗</span></a
+            >
+            <a class="text-link" href="https://github.com/rizaust/open-scion"
+              >Explore the source</a
+            >
+          </div>
+          <p class="hero-note">
+            Alpha · Single-node · Python 3.11+<br />Independent project. Not
+            affiliated with Anthropic.
+          </p>
+        </div>
+        <svg
+          class="hero-graph"
+          viewBox="0 0 470 380"
+          role="img"
+          aria-labelledby="hero-graph-title hero-graph-desc"
+        >
+          <title id="hero-graph-title">
+            Many contributors, one shared branch
+          </title>
+          <desc id="hero-graph-desc">
+            Independent changes from an agent, a human, and CI converge onto
+            main.
+          </desc>
+          <g class="graph-lines" fill="none" stroke-width="1.8">
+            <path class="branch-agent" d="M100 65C230 65 186 199 300 199" />
+            <path d="M100 199H420" />
+            <path class="branch-ci" d="M100 315C232 315 203 199 300 199" />
+          </g>
+          <g class="graph-nodes" stroke-width="2">
+            <circle class="node-agent" cx="100" cy="65" r="7" />
+            <circle cx="100" cy="199" r="7" />
+            <circle class="node-ci" cx="100" cy="315" r="7" />
+            <circle class="node-merge" cx="300" cy="199" r="11" />
+            <circle cx="420" cy="199" r="9" />
+          </g>
+          <g class="graph-labels">
+            <text x="75" y="71" text-anchor="end">agent</text>
+            <text x="75" y="205" text-anchor="end">human</text>
+            <text x="75" y="321" text-anchor="end">CI</text>
+            <text x="420" y="240" text-anchor="middle">main</text>
+          </g>
+        </svg>
+      </section>
+      <section
+        id="architecture"
+        class="architecture"
+        aria-labelledby="architecture-title"
+      >
+        <div class="wrap section-wrap">
+          <h2 id="architecture-title">
+            Many workspaces.<br /><span>One source of truth.</span>
+          </h2>
+          <p class="section-intro">
+            Keep history on the server. Bring only what you need to your
+            workspace.
+          </p>
+          <div
+            class="architecture-visual"
+            role="img"
+            aria-label="Humans, coding agents, and CI use a Scion server. The server stores immutable changesets and atomic refs in SQLite WAL, with content-addressed Merkle trees and SHA-256 compressed blobs."
+          >
+            <svg
+              class="architecture-diagram"
+              viewBox="0 0 1280 350"
+              aria-hidden="true"
+            >
+              <g class="diagram-links" fill="none" stroke-width="1.5">
+                <path d="M282 57H305Q325 57 325 82V148Q325 174 351 174H440" />
+                <path d="M282 174H440" />
+                <path d="M282 291H305Q325 291 325 266V200Q325 174 351 174" />
+                <path d="M833 154H869Q890 154 890 130V90Q890 69 916 69H949" />
+                <path
+                  d="M833 192H869Q890 192 890 218V248Q890 270 916 270H949"
+                />
+                <path d="M638 241V280" />
+              </g>
+              <g class="diagram-boxes" fill="none" stroke-width="1">
+                <rect x="1" y="12" width="280" height="88" rx="2" />
+                <rect x="1" y="130" width="280" height="88" rx="2" />
+                <rect x="1" y="248" width="280" height="88" rx="2" />
+                <rect
+                  class="server-box"
+                  x="440"
+                  y="105"
+                  width="393"
+                  height="136"
+                  rx="2"
+                />
+                <rect x="950" y="18" width="328" height="102" rx="2" />
+                <rect x="950" y="219" width="328" height="102" rx="2" />
+              </g>
+              <g
+                class="diagram-icons"
+                fill="none"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="42" cy="44" r="7" />
+                <path d="M30 72v-5a12 12 0 0 1 24 0v5z" />
+                <rect x="27" y="160" width="30" height="25" rx="6" />
+                <path d="M42 160v-8M23 168v9M61 168v9M36 179h12" />
+                <circle cx="35" cy="169" r="1" />
+                <circle cx="49" cy="169" r="1" />
+                <path d="M26 288l9-8-9-8M42 288h16" />
+                <path d="M993 64l-12 18m12-18 13 18" />
+                <circle cx="993" cy="55" r="7" />
+                <circle cx="978" cy="89" r="6" />
+                <circle cx="1009" cy="89" r="6" />
+                <ellipse cx="995" cy="252" rx="16" ry="6" />
+                <path d="M979 252v26c0 8 32 8 32 0v-26M979 265c0 8 32 8 32 0" />
+                <ellipse cx="638" cy="288" rx="14" ry="5" />
+                <path d="M624 288v23c0 7 28 7 28 0v-23" />
+              </g>
+              <g class="diagram-labels">
+                <text x="85" y="51">Human</text>
+                <text x="85" y="173">Coding agent</text>
+                <text x="85" y="289">CI</text>
+                <text x="1040" y="64">Merkle trees</text>
+                <text x="1040" y="266">Compressed blobs</text>
+                <text class="server-title" x="636" y="161" text-anchor="middle">
+                  Scion server
+                </text>
+              </g>
+              <g class="diagram-captions">
+                <text x="85" y="73">CLI / HTTP API</text>
+                <text x="85" y="195">AUTONOMOUS / SCRIPTED</text>
+                <text x="85" y="312">BUILDS / TESTS / AUTOMATION</text>
+                <text x="1040" y="88">CONTENT-ADDRESSED</text>
+                <text x="1040" y="290">SHA-256</text>
+                <text x="636" y="195" text-anchor="middle">
+                  Immutable changesets + atomic refs
+                </text>
+                <text x="638" y="339" text-anchor="middle">SQLite WAL</text>
+              </g>
+            </svg>
+            <div class="architecture-mobile" aria-hidden="true">
+              <div class="mobile-clients">
+                Human <span>·</span> Coding agent <span>·</span> CI
+              </div>
+              <span class="flow-arrow">↓</span>
+              <div class="mobile-server">
+                <strong>Scion server</strong
+                ><span>Immutable changesets + atomic refs</span
+                ><span>SQLite WAL</span>
+              </div>
+              <span class="flow-arrow">↓</span>
+              <div class="mobile-storage">
+                <span>Merkle trees</span
+                ><span>Compressed blobs<br /><small>SHA-256</small></span>
+              </div>
+            </div>
+          </div>
+          <div class="principles">
+            <article>
+              <span class="index">01</span>
+              <h3>Publish changes</h3>
+              <p>
+                Create an immutable changeset without moving a shared branch.
+              </p>
+            </article>
+            <article>
+              <span class="index">02</span>
+              <h3>Review &amp; reconcile</h3>
+              <p>Diff, merge, rebase, blame, and search through the API.</p>
+            </article>
+            <article>
+              <span class="index">03</span>
+              <h3>Land deliberately</h3>
+              <p>Advance a ref with exact compare-and-swap protection.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section
+        id="get-started"
+        class="quickstart wrap section-wrap"
+        aria-labelledby="quickstart-title"
+      >
+        <div class="quickstart-copy">
+          <h2 id="quickstart-title">Start local.<br />Build together.</h2>
+          <p class="section-intro">
+            One Python package. A server, a CLI, and a plain HTTP API.
+          </p>
+          <ol class="steps">
+            <li>
+              <span class="step-number">01</span>
+              <div>
+                <h3>Install</h3>
+                <p>
+                  Clone the repository and install the CLI in a Python virtual
+                  environment.
+                </p>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">02</span>
+              <div>
+                <h3>Start a server</h3>
+                <p>Run a local single-node store.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">03</span>
+              <div>
+                <h3>Make your first change</h3>
+                <p>Create a workspace, commit, then land on main.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+        <div class="terminal">
+          <div class="terminal-heading">
+            <span>Terminal 1 · Install &amp; serve</span
+            ><button
+              type="button"
+              class="copy-button"
+              data-copy="install-code"
+              aria-label="Copy installation and server commands"
+            >
+              Copy <span aria-hidden="true">⧉</span>
+            </button>
+          </div>
+          <pre
+            tabindex="0"
+            aria-label="Installation and server commands"
+          ><code id="install-code">git clone https://github.com/rizaust/open-scion.git
+cd open-scion
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install -e .
+scion serve --data ./scion-data</code></pre>
+          <div class="terminal-heading terminal-divider">
+            <span>Terminal 2 · From open-scion/</span
+            ><button
+              type="button"
+              class="copy-button"
+              data-copy="workspace-code"
+              aria-label="Copy workspace commands"
+            >
+              Copy <span aria-hidden="true">⧉</span>
+            </button>
+          </div>
+          <pre
+            tabindex="0"
+            aria-label="Workspace commands"
+          ><code id="workspace-code">. .venv/bin/activate
+scion init ../workspace --server http://127.0.0.1:7433
+cd ../workspace
+echo "hello, scion" &gt; hello.txt
+scion commit -m "First change" --author "you"
+scion land --ref main</code></pre>
+          <p class="terminal-note">
+            macOS / Linux shell · Python 3.11 or newer
+          </p>
+          <span
+            class="visually-hidden"
+            id="copy-status"
+            role="status"
+            aria-live="polite"
+          ></span>
+        </div>
+      </section>
+      <section class="open-note wrap" aria-labelledby="open-note-title">
+        <h2 id="open-note-title">Open by design. Early by choice.</h2>
+        <p>
+          Alpha software for a trusted team on a single server. No distributed
+          storage or production-scale guarantees.
+        </p>
+        <div class="actions">
+          <a
+            class="button button-lime"
+            href="https://github.com/rizaust/open-scion/blob/main/README.md"
+            >Read the English guide <span aria-hidden="true">↗</span></a
+          ><a
+            class="text-link"
+            href="https://github.com/rizaust/open-scion/blob/main/README.zh-CN.md"
+            lang="zh-CN"
+            >阅读中文文档 <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer wrap">
+      <div class="footer-brand">
+        <a href="#">open scion</a
+        ><a href="https://github.com/rizaust/open-scion/blob/main/LICENSE"
+          >Apache-2.0</a
+        >
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/rizaust/open-scion">GitHub</a
+        ><a href="#architecture">Architecture</a
+        ><span>Independent project. Not affiliated with Anthropic.</span>
+      </div>
+    </footer>
+  </body>
+</html>
