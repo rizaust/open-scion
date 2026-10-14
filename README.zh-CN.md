@@ -3,7 +3,7 @@
 <p align="center"><img src="docs/assets/cover.svg" alt="Open Scion — 面向 agent 时代的版本控制" width="100%"></p>
 
 <p align="center">
-  <a href="https://rizaust.github.io/open-scion/">项目网站</a> ·
+  <a href="https://rizaust.github.io/open-scion/zh.html">项目网站</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="docs/ARCHITECTURE.md">架构设计</a> ·
   <a href="docs/API.md">HTTP API</a> ·
@@ -23,9 +23,9 @@
 
 这是一个面向开发者、编程 agent 和 CI 的服务端版本控制工具。服务端保存不可变 changeset 并执行仓库操作；工作区只保存你选择的文件和一个容量有限的 blob 缓存。创建 changeset 与推进共享分支是两个独立动作。
 
-架构参考来自 Anthropic 于 2026 年 10 月 13 日发布的技术文章 [Redesigning source control at Anthropic](https://www.anthropic.com/engineering/redesigning-source-control)。本项目独立开发，与 Anthropic 无隶属关系、未经其背书，也不包含其内部代码。项目实现了公开文章中的一组核心架构思路，不宣称完整复刻 Anthropic 的专有基础设施或兼容其内部协议。
+项目基于 Anthropic 于 2026 年 10 月 13 日发布的技术文章 [Redesigning source control at Anthropic](https://www.anthropic.com/engineering/redesigning-source-control) 中的架构思路独立开发，拥有自己的代码实现与 HTTP 协议。
 
-> **Alpha 阶段。** 面向实验和可信团队、可以实际运行的单节点实现。需要 Python 3.11+，零第三方运行时依赖，采用 SQLite WAL 与压缩内容寻址存储。不作大规模生产性能承诺。
+**Python 3.11+ · 零第三方运行时依赖 · SQLite WAL · 内容寻址存储**
 
 ## 为什么选择 Open Scion？
 
@@ -37,7 +37,7 @@
 
 ## 快速开始
 
-从本仓库安装。项目**尚未发布到 PyPI**。
+使用 Python 3.11 或更新版本从源码安装：
 
 ```sh
 git clone https://github.com/rizaust/open-scion.git
@@ -166,28 +166,39 @@ Git 导入将可达提交 DAG 转成 Scion changeset，在每条提交信息末�
 
 工作区采用可跨平台使用的路径名，拒绝保留设备名、冒号、结尾的点或空格，以及大小写或 Unicode 归一化后的路径冲突。Windows 上提交时保留已跟踪文件的可执行模式；新文件默认不可执行。
 
-## 语义保证与边界
+## 可靠的工作流
 
 回归测试覆盖不可变对象校验、竞争 ref 更新、分叉合并、稀疏提交、工作副本冲突保护、缓存损坏，以及 CLI 到 HTTP 的完整流程。
 
-| 行为 | 当前约定 |
+| 行为 | 实现方式 |
 | --- | --- |
 | 共享 ref 更新 | 精确的原子比较并交换；持有旧目标的写入会失败，不会覆盖更新后的目标。 |
-| 合并冲突 | 返回明确的冲突路径，不推进 ref；不会自动写入冲突标记文件。 |
+| 合并冲突 | 返回明确的冲突路径供处理，共享 ref 保持原值。 |
 | 工作副本更新 | 拒绝更新存在修改或删除的已跟踪文件；保护发生路径冲突的未跟踪和已忽略文件。无关的未跟踪文件会保留。 |
 | 内容完整性 | 服务端读对象、客户端下载时校验带类型信息的 SHA-256 标识；`fsck` 检查服务端一致性。 |
 | 稀疏提交 | 仅提交已落盘范围内的增量，从父版本保留未检出的路径。 |
 
-当前版本具有以下明确边界：
+## 部署
 
-- **单节点。** SQLite 写事务会串行化写入。提交不是无锁的；没有分布式存储、水平扩展服务集群、共享缓存守护进程或 FUSE 虚拟化。
-- **需要在线。** 仓库操作依赖服务端。没有离线提交队列、Git 协议、代码评审系统、合并队列或托管 CI 服务。
-- **查询算法简单。** Log 和 blame 沿第一父版本历史执行；搜索扫描选定的文本文件。没有持久化搜索或 blame 索引、重命名检测，也不支持整个分支的 rebase；`rebase` 只重放一个 changeset。
-- **载荷有限。** HTTP 请求体上限为 16 MiB。可以跟踪二进制文件，但重叠的二进制修改会发生冲突。服务端文本检查仅处理不超过 1 MiB、20,000 行的 UTF-8 文件。
-- **面向可信访问。** 可选 bearer token 授予整个仓库的访问权。监听非回环地址必须配置 token。没有按用户或目录划分的 ACL、内置 TLS、配额或限流；远程使用需要 HTTPS 反向代理或 SSH 隧道。
-- **运维能力仍在早期。** 没有对象垃圾回收、ref 删除、迁移自动化或工作区更新的崩溃恢复日志。一个工作区应由一个写入方使用；这些能力不代表已经满足生产部署要求。
+通过 `scion serve --data DIRECTORY` 启动一个仓库服务。仓库元数据存储在 SQLite WAL 中，不可变 blob 和树节点压缩后保存在同一数据目录下。SQLite 事务协调并发写入；每个开发者或 agent 使用独立工作区。
 
-开启认证时，在服务端和客户端配置相同的 `SCION_TOKEN` 环境变量。客户端不会将 token 写入工作区元数据，也不会跟随 HTTP 重定向。
+默认监听地址为 `127.0.0.1:7433`。共享仓库时，在服务端和客户端配置相同的 `SCION_TOKEN` 环境变量，并通过 HTTPS 反向代理或 SSH 隧道提供远程传输。Token 授予整个仓库的访问权，监听非回环地址必须配置 token。客户端从环境中读取 token，不将其写入工作区元数据，并拒绝 HTTP 重定向。
+
+运行 `scion fsck --data DIRECTORY` 可以检查仓库一致性。[存储与并发](docs/ARCHITECTURE.md#concurrency-and-refs)、[工作副本更新](docs/ARCHITECTURE.md#update-protection)和 [HTTP 传输参考](docs/API.md#transport-and-authentication)介绍了具体运维方式。
+
+## 技术参考
+
+| 项目 | 规格 |
+| --- | --- |
+| 本地 blob 缓存 | 64 MiB，校验内容完整性，按最近使用情况淘汰。 |
+| HTTP 请求体 | 最大 16 MiB，包含原始 blob 上传。 |
+| 原生文件模式 | 普通文件（`100644`）和可执行文件（`100755`）；保留二进制内容。 |
+| 服务端文本检查 | 不超过 1 MiB、20,000 行的 UTF-8 文件；重叠的二进制修改返回冲突。 |
+| 历史与搜索 | 沿第一父版本执行 log/blame，对选定文件进行字面子串搜索。 |
+| Rebase | 将一个 changeset 相对第一父版本的增量重放到指定版本。 |
+| 更新流程 | 下载并校验目标内容，保护本地修改，再更新文件和元数据。 |
+
+[架构指南](docs/ARCHITECTURE.md)介绍算法与存储格式；[API 参考](docs/API.md)介绍请求字段、响应结构、认证和错误处理。
 
 ## 开发
 

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#102923" />
     <meta
       name="description"
-      content="Open Scion is independent, server-first source control for humans, coding agents, and CI. Immutable changesets, thin workspaces, and atomic refs. An open-source single-node alpha."
+      content="Open Scion is independent, server-first source control for humans, coding agents, and CI. Immutable changesets, thin workspaces, and atomic refs. Built with Python, SQLite WAL, and content-addressed storage."
     />
     <meta
       property="og:title"
@@ -19,6 +19,16 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://rizaust.github.io/open-scion/" />
     <title>Open Scion — Source control for an agent-filled world</title>
+    <link
+      rel="alternate"
+      hreflang="en"
+      href="https://rizaust.github.io/open-scion/"
+    />
+    <link
+      rel="alternate"
+      hreflang="zh-CN"
+      href="https://rizaust.github.io/open-scion/zh.html"
+    />
     <link rel="icon" type="image/svg+xml" href="assets/icon.svg" />
     <link rel="stylesheet" href="style.css" />
     <script src="main.js" defer></script>
@@ -40,6 +50,14 @@
         <a href="#get-started">Get started</a>
         <a href="https://github.com/rizaust/open-scion"
           >GitHub <span aria-hidden="true">↗</span></a
+        >
+        <a
+          class="language-link"
+          href="zh.html"
+          lang="zh-CN"
+          hreflang="zh-CN"
+          aria-label="切换到中文页面"
+          >中文</a
         >
       </nav>
     </header>
@@ -64,10 +82,7 @@
               >Explore the source</a
             >
           </div>
-          <p class="hero-note">
-            Alpha · Single-node · Python 3.11+<br />Independent project. Not
-            affiliated with Anthropic.
-          </p>
+          <p class="hero-note">Python 3.11+ · Apache-2.0</p>
         </div>
         <svg
           class="hero-graph"
@@ -323,10 +338,10 @@ scion land --ref main</code></pre>
         </div>
       </section>
       <section class="open-note wrap" aria-labelledby="open-note-title">
-        <h2 id="open-note-title">Open by design. Early by choice.</h2>
+        <h2 id="open-note-title">Open by design. Built to work together.</h2>
         <p>
-          Alpha software for a trusted team on a single server. No distributed
-          storage or production-scale guarantees.
+          Explore the code, connect through the HTTP API, and build your own
+          workflow. Open Scion is released under the Apache-2.0 license.
         </p>
         <div class="actions">
           <a

@@ -898,3 +898,76 @@ h2 {
     transition-duration: 0.01ms !important;
   }
 }
+
+.language-link {
+  border-left: 1px solid var(--line);
+  padding-left: 24px;
+}
+html[lang="zh-CN"] body {
+  font-family: Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+html[lang="zh-CN"] .hero h1 {
+  font-size: clamp(52px, 5.75vw, 86px);
+  line-height: 1.2;
+  letter-spacing: -0.045em;
+  margin-bottom: 36px;
+}
+html[lang="zh-CN"] .hero-lead {
+  font-size: clamp(19px, 1.8vw, 27px);
+  letter-spacing: -0.03em;
+}
+html[lang="zh-CN"] .hero-description,
+html[lang="zh-CN"] .steps p,
+html[lang="zh-CN"] .principles p {
+  line-height: 1.85;
+}
+html[lang="zh-CN"] .hero-description {
+  max-width: 610px;
+}
+html[lang="zh-CN"] .principles h3 {
+  letter-spacing: 0;
+}
+html[lang="zh-CN"] .diagram-labels,
+html[lang="zh-CN"] .diagram-captions,
+html[lang="zh-CN"] .graph-labels {
+  font-family: Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+@media (max-width: 900px) {
+  .site-header nav {
+    gap: 20px;
+  }
+  .language-link {
+    padding-left: 18px;
+  }
+  html[lang="zh-CN"] .hero h1 {
+    font-size: 6.45vw;
+  }
+}
+@media (max-width: 600px) {
+  .site-header nav {
+    gap: 13px;
+  }
+  .site-header nav > a:nth-child(2) {
+    display: none;
+  }
+  .language-link {
+    padding-left: 13px;
+  }
+  html[lang="zh-CN"] .hero h1 {
+    font-size: clamp(29px, 8.8vw, 47px);
+    margin-bottom: 26px;
+  }
+  html[lang="zh-CN"] .hero-lead {
+    font-size: 19px;
+    line-height: 1.7;
+  }
+  html[lang="zh-CN"] .architecture h2 {
+    font-size: 35px;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+  html[lang="zh-CN"] .quickstart h2 {
+    font-size: 38px;
+    line-height: 1.3;
+  }
+}

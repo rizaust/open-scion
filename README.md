@@ -23,9 +23,9 @@
 
 Open Scion is a server-first source control tool for developers, coding agents, and CI. The server owns immutable changesets and repository operations. A workspace holds the files you select and a bounded blob cache. Creating a changeset and advancing a shared branch are separate actions.
 
-The architectural reference is Anthropic's October 13, 2026 article, [Redesigning source control at Anthropic](https://www.anthropic.com/engineering/redesigning-source-control). This project is independently developed, has no affiliation with or endorsement from Anthropic, and contains no Anthropic internal code. It implements a focused set of published architectural ideas, without claiming to reproduce Anthropic's proprietary infrastructure or protocol.
+Built independently from the architectural ideas in Anthropic's October 13, 2026 article, [Redesigning source control at Anthropic](https://www.anthropic.com/engineering/redesigning-source-control), with its own codebase and HTTP protocol.
 
-> **Alpha.** A working, single-node implementation for experimentation and trusted teams. Python 3.11+, zero third-party runtime dependencies, SQLite WAL, and compressed content-addressed storage. No production-scale performance claims.
+**Python 3.11+ · Zero third-party runtime dependencies · SQLite WAL · Content-addressed storage**
 
 ## Why Open Scion?
 
@@ -37,7 +37,7 @@ The architectural reference is Anthropic's October 13, 2026 article, [Redesignin
 
 ## Quickstart
 
-Install from this repository. The package is **not published to PyPI**.
+Install from source with Python 3.11 or newer:
 
 ```sh
 git clone https://github.com/rizaust/open-scion.git
@@ -166,28 +166,39 @@ Git import preserves the reachable commit DAG as Scion changesets, adds an `Impo
 
 Workspaces use portable path names and reject reserved device names, colons, trailing dots/spaces, and case or Unicode collisions. On Windows, tracked executable modes are preserved in commits; newly created files default to non-executable.
 
-## Guarantees and boundaries
+## Working with confidence
 
 The regression suite exercises immutable-object verification, competing ref updates, divergent merges, sparse commits, working-copy collision protection, cache corruption, and the CLI-to-HTTP workflow.
 
-| Behavior | Current contract |
+| Behavior | How it works |
 | --- | --- |
 | Shared ref updates | Exact atomic compare-and-swap; stale writers fail instead of replacing a newer target. |
-| Conflicting merges | Return explicit conflict paths and do not move the ref. No automatic conflict-marker files. |
+| Conflicting merges | Return explicit conflict paths for resolution and keep the shared ref unchanged. |
 | Working-copy updates | Refuse modified or deleted tracked files; protect colliding untracked and ignored files. Unrelated untracked files survive. |
 | Content integrity | Verify typed SHA-256 identities on object reads and client downloads; `fsck` checks server consistency. |
 | Sparse commits | Send deltas only for materialized paths; retain unseen paths from the parent. |
 
-This release is intentionally bounded:
+## Deployment
 
-- **Single node.** SQLite write transactions serialize writers. Commits are not lock-free; there is no distributed storage, horizontal server fleet, shared cache daemon, or FUSE virtualization.
-- **Online workflows.** Repository operations require the server. There is no offline commit queue, Git wire protocol, review system, merge queue, or hosted CI service.
-- **Simple query algorithms.** Log and blame follow first-parent history. Search scans selected text files. There are no persistent search/blame indexes, rename detection, or whole-branch rebase; `rebase` replays one changeset.
-- **Bounded payloads.** HTTP bodies are limited to 16 MiB. Binary files are tracked, but overlapping binary edits conflict. Server text inspection is limited to UTF-8 files up to 1 MiB and 20,000 lines.
-- **Trusted access.** An optional bearer token grants repository-wide access. Binding beyond loopback requires a token. There are no per-user or per-directory ACLs, built-in TLS, quotas, or rate limits; remote use needs an HTTPS reverse proxy or SSH tunnel.
-- **Early operational tooling.** No object garbage collection, ref deletion, migration automation, or crash-recovery journal for workspace updates. A workspace is intended for one writer at a time; this is not a production readiness claim.
+Run one repository service with `scion serve --data DIRECTORY`. Repository metadata lives in SQLite WAL, and immutable blobs and tree nodes live in compressed object files alongside it. SQLite transactions coordinate concurrent writers; each developer or agent uses a separate workspace.
 
-Set the same `SCION_TOKEN` environment variable for server and clients when authentication is enabled. The client never saves it in workspace metadata and refuses HTTP redirects.
+The default listener is `127.0.0.1:7433`. To share a repository, set the same `SCION_TOKEN` environment variable for server and clients, and use an HTTPS reverse proxy or SSH tunnel for remote transport. A token grants repository-wide access, and binding beyond loopback requires one. The client reads the token from its environment, keeps it out of workspace metadata, and refuses HTTP redirects.
+
+For consistency checks, run `scion fsck --data DIRECTORY`. See [storage and concurrency](docs/ARCHITECTURE.md#concurrency-and-refs), [working-copy updates](docs/ARCHITECTURE.md#update-protection), and the [HTTP transport reference](docs/API.md#transport-and-authentication) for operational details.
+
+## Technical reference
+
+| Area | Specification |
+| --- | --- |
+| Local blob cache | 64 MiB, content-verified, with least-recently-used eviction. |
+| HTTP request body | Up to 16 MiB, including raw blob uploads. |
+| Native file modes | Regular files (`100644`) and executable files (`100755`); binary content is preserved. |
+| Server text inspection | UTF-8 files up to 1 MiB and 20,000 lines; overlapping binary edits return conflicts. |
+| History and search | First-parent log/blame and literal substring search over selected files. |
+| Rebase | Replays one changeset's first-parent delta onto the chosen revision. |
+| Update workflow | Download and verify target content, protect local edits, then update files and metadata. |
+
+The [architecture guide](docs/ARCHITECTURE.md) describes the algorithms and storage format. The [API reference](docs/API.md) covers request fields, response shapes, authentication, and error handling.
 
 ## Development
 
