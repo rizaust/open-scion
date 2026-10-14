@@ -23,7 +23,7 @@
     <text x="72" y="305" font-size="15" fill="#58705e">Local status and working-copy diff</text>
     <rect x="72" y="329" width="255" height="74" rx="10" fill="#edf4e8"/>
     <text x="88" y="355" font-size="14" font-weight="700" fill="#2a5037">Verified blob cache · 64 MiB</text>
-    <text x="88" y="379" font-size="13" fill="#58705e">No local history database</text>
+    <text x="88" y="379" font-size="13" fill="#58705e">History served over the API</text>
 
     <rect x="48" y="475" width="303" height="108" rx="15" fill="#ffffff" stroke="#cddac8" stroke-width="1.5"/>
     <text x="72" y="509" font-size="20" font-weight="700" fill="#1c3828">Agents, scripts, and CI</text>
@@ -69,7 +69,7 @@
     <line x1="48" y1="626" x2="1232" y2="626" stroke="#d5e1cf"/>
     <text x="48" y="660" font-size="15" font-weight="700" fill="#234832">Commit creates immutable history.</text>
     <text x="48" y="686" font-size="14" fill="#58705e">Land separately advances a shared ref, or fails if its expected value changed.</text>
-    <text x="854" y="660" font-size="12" font-weight="700" letter-spacing="1" fill="#53705b">SINGLE-NODE ALPHA</text>
-    <text x="854" y="686" font-size="13" fill="#58705e">No distributed storage or cache daemon.</text>
+    <text x="854" y="660" font-size="12" font-weight="700" letter-spacing="1" fill="#53705b">SINGLE-NODE SERVICE</text>
+    <text x="854" y="686" font-size="13" fill="#58705e">SQLite metadata · immutable object files</text>
   </g>
 </svg>
