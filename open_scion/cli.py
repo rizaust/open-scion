@@ -9,6 +9,7 @@ import os
 import sys
 from urllib.parse import quote, urlencode
 
+from . import __version__
 from .client import Client
 from .store import ScionError, Store
 from .workspace import Workspace
@@ -16,6 +17,7 @@ from .workspace import Workspace
 
 def _parser():
     parser = argparse.ArgumentParser(prog="scion", description="Server-native version control with thin, sparse workspaces.")
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     sub = parser.add_subparsers(dest="command", required=True)
 

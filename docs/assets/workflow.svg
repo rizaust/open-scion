@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="502" viewBox="0 0 1200 502" role="img" aria-labelledby="title desc">
+<title id="title">A real Open Scion two-agent workflow</title>
+<desc id="desc">Captured output from examples/demo.py showing a merged update, history, repository search, clean workspace, and successful integrity check. Hashes shortened for readability.</desc>
+<rect width="1200" height="502" rx="20" fill="#0b201a"/>
+<path d="M0 70H1200" stroke="#2c4539"/>
+<circle cx="32" cy="34" r="6" fill="#e09878"/><circle cx="55" cy="34" r="6" fill="#d9c282"/><circle cx="78" cy="34" r="6" fill="#a9ce87"/>
+<text x="112" y="40" font-family="monospace" font-size="15" fill="#9cb2a7">open-scion / two agents, one shared history</text>
+<text x="40" y="116" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#b8f397">$ scion update</text>
+<text x="40" y="146" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">Updated to 64ffed965359 (2 files written, 0 deleted)</text>
+<text x="40" y="176" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#b8f397">$ scion log --limit 4</text>
+<text x="40" y="206" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">64ffed965359  agent-b  Land: Update guide</text>
+<text x="40" y="236" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">8b41fd2a60cf  agent-a  Improve greeting</text>
+<text x="40" y="266" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">58cb020b55b4  maintainer  Initial project</text>
+<text x="40" y="296" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#b8f397">$ scion search agents</text>
+<text x="40" y="326" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">docs/guide.md:1:# Hello, agents</text>
+<text x="40" y="356" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">src/app.py:1:print(&quot;hello, agents&quot;)</text>
+<text x="40" y="386" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#b8f397">$ scion status</text>
+<text x="40" y="416" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#d7e4dc">Working copy clean</text>
+<text x="40" y="446" font-family="SFMono-Regular,Consolas,monospace" font-size="18" fill="#b8f397">Repository integrity: OK</text>
+</svg>
