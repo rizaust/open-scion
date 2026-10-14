@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 
+from .graph import CommitGraph
 from .store import ScionError, Store, validate_path
 
 TEXT_LIMIT = 1024 * 1024
@@ -58,23 +59,10 @@ class Operations:
 
     def __init__(self, store: Store):
         self.store = store
-
-    def _ancestors(self, revision: str) -> dict[str, dict]:
-        pending = [self.store.resolve(revision)]
-        result = {}
-        while pending:
-            oid = pending.pop()
-            if oid in result:
-                continue
-            record = self.store.get_changeset(oid)
-            result[oid] = record
-            pending.extend(record["parents"])
-        return result
+        self.graph = CommitGraph(store)
 
     def merge_base(self, left: str, right: str) -> str | None:
-        ancestors = self._ancestors(left)
-        common = ancestors.keys() & self._ancestors(right).keys()
-        return max(common, key=lambda oid: (ancestors[oid]["generation"], oid)) if common else None
+        return self.graph.merge_base(left, right)
 
     def diff(self, base: str, target: str, prefix: str = "") -> list[dict]:
         before, after = self.store.tree(base, prefix), self.store.tree(target, prefix)
@@ -145,7 +133,7 @@ class Operations:
     def merge(self, base: str | None, ours: str, theirs: str, message: str, author: str) -> dict:
         ours, theirs = self.store.resolve(ours), self.store.resolve(theirs)
         base = self.store.resolve(base) if base else self.merge_base(ours, theirs)
-        if base and (base not in self._ancestors(ours) or base not in self._ancestors(theirs)):
+        if base and (not self.graph.is_ancestor(base, ours) or not self.graph.is_ancestor(base, theirs)):
             raise ScionError("Merge base must be an ancestor of both revisions")
         left, merged = self._merged_tree(base, ours, theirs)
         changes = {p: merged.get(p) for p in left.keys() | merged.keys() if left.get(p) != merged.get(p)}
@@ -169,9 +157,9 @@ class Operations:
         if current != expected:
             raise ScionError("Ref changed; fetch the current target and retry", code="stale_ref", status=409,
                              details={"expected": expected, "actual": current})
-        if current is None or current in self._ancestors(revision):
+        if current is None or self.graph.is_ancestor(current, revision):
             landed = self.store.get_changeset(revision)
-        elif revision in self._ancestors(current):
+        elif self.graph.is_ancestor(revision, current):
             landed = self.store.get_changeset(current)
         else:
             landed = self.merge(None, current, revision,
