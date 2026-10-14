@@ -35,7 +35,7 @@ def validate_path(path: str) -> str:
     if not isinstance(path, str) or not path or len(path.encode("utf-8", errors="replace")) > 4096:
         raise ScionError("Path must be a nonempty relative POSIX path of at most 4096 bytes")
     if "\\" in path or "\x00" in path or any(
-        part in {"", ".", "..", ".git", ".scion"} for part in path.split("/")
+        part in {"", ".", ".."} or part.casefold() in {".git", ".scion"} for part in path.split("/")
     ):
         raise ScionError(f"Unsafe or non-normalized path: {path!r}")
     if len(path.split("/")) > 256:
@@ -300,9 +300,39 @@ class Store:
                 raise ValueError("Invalid changeset fields")
             if record["tree"] != row[1] or record["generation"] != row[2]:
                 raise ValueError("Changeset indexes disagree")
+            self._validate_record(record)
             return {"id": oid, **record}
-        except (ValueError, TypeError, KeyError) as exc:
+        except (ValueError, TypeError, KeyError, ScionError) as exc:
             raise ScionError(f"Corrupt changeset {oid}: {exc}", "corrupt", 500) from exc
+
+    @staticmethod
+    def _validate_record(record: dict) -> None:
+        parents = record["parents"]
+        if not isinstance(parents, list) or len(parents) > 2:
+            raise ValueError("Invalid parent list")
+        for parent in parents:
+            _validate_oid(parent)
+        if len(set(parents)) != len(parents):
+            raise ValueError("Duplicate parents")
+        _validate_oid(record["tree"])
+        generation = record["generation"]
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+            raise ValueError("Invalid generation")
+        if not isinstance(record["message"], str) or not isinstance(record["author"], str) or not record["author"].strip():
+            raise ValueError("Invalid changeset message or author")
+        timestamp = record["created_at"]
+        if not isinstance(timestamp, str) or not timestamp.endswith("Z"):
+            raise ValueError("Invalid changeset timestamp")
+        datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if not isinstance(record["changes"], dict):
+            raise ValueError("Invalid changeset delta")
+        for path, entry in record["changes"].items():
+            validate_path(path)
+            if entry is not None:
+                if (not isinstance(entry, dict) or set(entry) != {"blob", "mode"}
+                        or not isinstance(entry.get("mode"), str) or entry["mode"] not in _MODES):
+                    raise ValueError("Invalid changeset entry")
+                _validate_oid(entry["blob"])
 
     def get_changeset(self, revision: str) -> dict:
         with self._connection() as db:
