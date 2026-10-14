@@ -1,4 +1,4 @@
-"""Small HTTP client shared by native workspaces and Git import."""
+"""Authenticated JSON and binary HTTP transport."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .store import ScionError, blob_id
+from ..store import ScionError
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -16,7 +16,9 @@ class _NoRedirect(HTTPRedirectHandler):
         raise ScionError("API redirects are not followed; use the canonical server URL", code="redirect", status=502)
 
 
-class Client:
+class HTTPTransport:
+    """Bind requests and credentials to one canonical server endpoint."""
+
     def __init__(self, server: str, token: str | None = None, timeout: float = 30):
         parsed = urlsplit(server)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -66,17 +68,3 @@ class Client:
             return json.loads(payload)
         except ValueError as exc:
             raise ScionError("Server returned invalid JSON", code="protocol", status=502) from exc
-
-    def put_blob(self, data: bytes) -> str:
-        oid = self.request("POST", "/v1/blobs", body=data)["id"]
-        if oid != blob_id(data):
-            raise ScionError("Server returned an incorrect blob ID", code="integrity", status=502)
-        return oid
-
-    def get_blob(self, oid: str) -> bytes:
-        if len(oid) != 64 or any(c not in "0123456789abcdef" for c in oid):
-            raise ScionError("Invalid blob ID")
-        data = self.request("GET", "/v1/blobs/" + oid, raw=True)
-        if blob_id(data) != oid:
-            raise ScionError("Downloaded blob failed content verification", code="integrity", status=502)
-        return data

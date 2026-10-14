@@ -237,8 +237,13 @@ class StoreTests(unittest.TestCase):
         check = Store(self.temporary.name, read_only=True).fsck()
         self.assertFalse(check["ok"])
         self.assertFalse(self.store._object_path(self.store._empty_tree).exists())
-        with self.assertRaises(ScionError):
-            Store(self.temporary.name, read_only=True).put_blob(b"forbidden")
+        readonly = Store(self.temporary.name, read_only=True)
+        for action in (lambda: readonly.put_blob(b"forbidden"),
+                       lambda: readonly.create_changeset([], {}, "forbidden", "test"),
+                       lambda: readonly.update_ref("main", "0" * 64, None)):
+            with self.assertRaises(ScionError) as raised:
+                action()
+            self.assertEqual(raised.exception.code, "read_only")
 
     def test_parent_validation(self):
         a = self.commit({})

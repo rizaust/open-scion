@@ -11,7 +11,7 @@ import threading
 import unittest
 
 from open_scion.client import Client
-from open_scion.git_import import import_git
+from open_scion.importers import import_git
 from open_scion.server import make_server
 from open_scion.store import ScionError, Store
 

@@ -10,8 +10,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from open_scion import backup
-from open_scion.backup import restore_backup
+from open_scion.store import backup
+from open_scion.store.backup import restore_backup
 from open_scion.store import ScionError, Store
 
 

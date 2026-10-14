@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
-from .store import ScionError, validate_path, validate_ref
+from ..store import ScionError, validate_path, validate_ref
 
 
 def import_git(path, client, ref: str = "main", revision: str = "HEAD") -> dict:
