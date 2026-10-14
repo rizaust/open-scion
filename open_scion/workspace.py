@@ -17,6 +17,7 @@ from .client import Client
 from .store import ScionError, blob_id, validate_path, validate_prefix
 
 CACHE_LIMIT = 64 * 1024 * 1024
+NATIVE_EXECUTABLE_BITS = os.name != "nt"
 
 
 def _error(message, paths=None):
@@ -188,6 +189,8 @@ class Workspace:
     def _safe_path(self, relative):
         validate_path(relative)
         path = self.root / relative
+        if not path.is_relative_to(self.root) or path == self.root:
+            raise ScionError(f"Path escapes the workspace: {relative}")
         for candidate in (path, *path.parents):
             if candidate == self.root:
                 break
@@ -249,7 +252,8 @@ class Workspace:
                 if not stat.S_ISREG(info.st_mode):
                     raise ScionError(f"Only regular files are supported: {path}")
                 data = absolute.read_bytes()
-                files[path] = {"blob": blob_id(data), "mode": "100755" if info.st_mode & 0o111 else "100644"}
+                mode = ("100755" if info.st_mode & 0o111 else "100644") if NATIVE_EXECUTABLE_BITS else tracked.get(path, {}).get("mode", "100644")
+                files[path] = {"blob": blob_id(data), "mode": mode}
                 payloads[path] = data
         return files, payloads
 
@@ -340,6 +344,7 @@ class Workspace:
         transaction = Path(tempfile.mkdtemp(prefix="update-", dir=self.control))
         backed_up, written = [], []
         previous = self.revision
+        preserve_backup = False
         try:
             for relative in sorted(remove, key=lambda p: (-p.count("/"), p)):
                 source = self._safe_path(relative)
@@ -361,22 +366,31 @@ class Workspace:
                 path.chmod(0o755 if entry["mode"] == "100755" else 0o644)
             self.config["revision"] = target
             self._save()
-        except Exception:
+        except Exception as update_error:
             self.config["revision"] = previous
-            for relative in reversed(written):
-                self._safe_path(relative).unlink()
-            for relative in reversed(backed_up):
-                path = self._safe_path(relative)
-                if path.is_dir():
-                    for child in sorted(path.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-                        if child.is_dir():
-                            child.rmdir()
-                    path.rmdir()
-                path.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(transaction / relative, path)
+            try:
+                for relative in reversed(written):
+                    self._safe_path(relative).unlink()
+                for relative in reversed(backed_up):
+                    path = self._safe_path(relative)
+                    if path.is_dir():
+                        for child in sorted(path.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                            if child.is_dir():
+                                child.rmdir()
+                        path.rmdir()
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(transaction / relative, path)
+            except Exception as rollback_error:
+                preserve_backup = True
+                raise ScionError(
+                    f"Update failed and rollback was incomplete; recover saved files from {transaction}",
+                    code="recovery_required", status=500,
+                    details={"backup": str(transaction), "update_error": str(update_error),
+                             "rollback_error": str(rollback_error)}) from rollback_error
             raise
         finally:
-            shutil.rmtree(transaction)
+            if not preserve_backup:
+                shutil.rmtree(transaction)
         for relative in remove:
             parent = (self.root / relative).parent
             while parent != self.root:

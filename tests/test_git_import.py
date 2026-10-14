@@ -24,13 +24,10 @@ class GitImportTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.source = self.root / "source"
         self.source.mkdir()
-        self.environment = os.environ.copy()
+        self.environment = {name: value for name, value in os.environ.items()
+                            if not name.startswith("GIT_")}
         self.environment.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
                                  "GIT_TERMINAL_PROMPT": "0"})
-        for name in tuple(self.environment):
-            if name in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} or name.startswith("GIT_CONFIG_KEY_") or name.startswith("GIT_CONFIG_VALUE_"):
-                self.environment.pop(name)
-        self.environment.pop("GIT_CONFIG_COUNT", None)
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Test Author")
         self.git("config", "user.email", "test@example.invalid")

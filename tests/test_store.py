@@ -1,8 +1,7 @@
 """Storage invariants and concurrent mutation tests."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import hashlib
-import json
-from pathlib import Path
 import random
 import sqlite3
 import tempfile
@@ -86,7 +85,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.stats()["changesets"], 3)
 
     def test_rejects_unsafe_paths_and_modes(self):
-        for path in ["", "/a", "a//b", "a/", "./a", "a/../b", "a\\b", "a\0b", ".git/x", "x/.scion/y"]:
+        for path in ["", "/a", "a//b", "a/", "./a", "a/../b", "a\\b", "a\0b", ".git/x", "x/.scion/y", ".SCION/x", ".Git/x"]:
             with self.subTest(path=path), self.assertRaises(ScionError):
                 validate_path(path)
         for name in ["", "../main", ".hidden", "feature//x", "a.lock", "a..b", "a" * 64]:
@@ -153,7 +152,7 @@ class StoreTests(unittest.TestCase):
 
     def test_sqlite_changesets_are_immutable(self):
         record = self.commit({})
-        with sqlite3.connect(self.store.db_path) as db:
+        with closing(sqlite3.connect(self.store.db_path)) as db:
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute("UPDATE changesets SET generation=4 WHERE id=?", (record["id"],))
             with self.assertRaises(sqlite3.IntegrityError):

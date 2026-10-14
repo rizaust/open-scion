@@ -34,8 +34,12 @@ def validate_path(path: str) -> str:
     """Require a normalized, relative, regular-file path."""
     if not isinstance(path, str) or not path or len(path.encode("utf-8", errors="replace")) > 4096:
         raise ScionError("Path must be a nonempty relative POSIX path of at most 4096 bytes")
-    if "\\" in path or "\x00" in path or any(
-        part in {"", ".", ".."} or part.casefold() in {".git", ".scion"} for part in path.split("/")
+    reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    reserved.update(prefix + number for prefix in ("COM", "LPT") for number in "123456789¹²³")
+    if any(ord(char) < 32 or char in '\\<>:"|?*' for char in path) or any(
+        part.casefold() in {"", ".", "..", ".git", ".scion"}
+        or part.rstrip(" .") != part or part.split(".")[0].upper() in reserved
+        for part in path.split("/")
     ):
         raise ScionError(f"Unsafe or non-normalized path: {path!r}")
     if len(path.split("/")) > 256:

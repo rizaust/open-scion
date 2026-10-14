@@ -188,6 +188,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(first, workspace.revision)
         self.assertEqual(first, json.loads((workspace.control / "workspace.json").read_text())["revision"])
 
+    @unittest.skipIf(os.name == "nt", "Windows has no native POSIX executable bits")
     def test_executable_mode_is_committed(self):
         workspace = self.workspace()
         path = workspace.root / "run.sh"
@@ -195,6 +196,42 @@ class WorkspaceTests(unittest.TestCase):
         path.chmod(0o755)
         result = workspace.commit("script", "alice")
         self.assertEqual("100755", self.store.tree(result["id"])["run.sh"]["mode"])
+
+    def test_executable_mode_is_preserved_without_native_mode_bits(self):
+        blob = self.store.put_blob(b"script\n")
+        record = self.store.create_changeset([], {"run": {"blob": blob, "mode": "100755"}}, "script", "tester")
+        self.store.update_ref("main", record["id"], None)
+        workspace = self.workspace()
+        with patch("open_scion.workspace.NATIVE_EXECUTABLE_BITS", False):
+            self.assertEqual([], workspace.status()["changes"])
+            (workspace.root / "run").write_bytes(b"new script\n")
+            (workspace.root / "new").write_bytes(b"new file\n")
+            result = workspace.commit("edit", "tester")
+            self.assertEqual("100755", result["changes"]["run"]["mode"])
+            self.assertEqual("100644", result["changes"]["new"]["mode"])
+
+    def test_portable_paths_cannot_escape_or_alias_metadata(self):
+        workspace = self.workspace()
+        for path in ("C:/outside", "a:stream", "CON", "aux.txt", ".SCION/cache/entry", "nested/.GIT/config", "a.", "a "):
+            with self.subTest(path=path), self.assertRaises(ScionError):
+                workspace._safe_path(path)
+
+    def test_incomplete_rollback_retains_recovery_files(self):
+        first = self.record({"a": b"original"}, ref="main")
+        workspace = self.workspace()
+        self.record({"a": b"replacement"}, first, ref="main")
+        replace = os.replace
+        def fail_restore(source, destination):
+            if Path(source).parent.name.startswith("update-"):
+                raise OSError("restore failure")
+            return replace(source, destination)
+        with patch.object(workspace, "_save", side_effect=OSError("save failure")), patch("open_scion.workspace.os.replace", side_effect=fail_restore):
+            with self.assertRaises(ScionError) as raised:
+                workspace.update()
+        self.assertEqual(raised.exception.code, "recovery_required")
+        backup = Path(raised.exception.details["backup"])
+        self.assertEqual((backup / "a").read_bytes(), b"original")
+        self.assertEqual(workspace.revision, first)
 
     def test_root_parent_alias_is_normalized_but_symlink_target_rejected(self):
         alias = self.base / "alias"

@@ -2,6 +2,7 @@ import concurrent.futures
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from open_scion.operations import Operations, merge_text
 from open_scion.store import ScionError, Store
@@ -32,6 +33,23 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(self.ops.merge_base(left["id"], right["id"]), self.base["id"])
         self.assertEqual([r["author"] for r in self.ops.blame(result["id"], "a.txt")], ["bob", "alice", "merger"])
         self.assertEqual(self.ops.search(result["id"], "THREE")[0]["line"], 3)
+
+    def test_blame_pins_revision_when_ref_moves_during_read(self):
+        deleted = self.commit([self.base["id"]], {"a.txt": None})
+        get_changeset = self.store.get_changeset
+
+        def read_then_move_ref(revision):
+            record = get_changeset(revision)
+            if revision == "main":
+                self.store.update_ref("main", deleted["id"], self.base["id"])
+            return record
+
+        with patch.object(self.store, "get_changeset", side_effect=read_then_move_ref):
+            result = self.ops.blame("main", "a.txt")
+
+        self.assertEqual([line["text"] for line in result], ["one", "two", "three"])
+        self.assertEqual({line["changeset"] for line in result}, {self.base["id"]})
+        self.assertEqual(self.store.resolve("main"), deleted["id"])
 
     def test_conflict_does_not_move_ref(self):
         left = self.commit([self.base["id"]], {"a.txt": b"left\n"})
