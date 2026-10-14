@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-scion"
+version = "0.1.0"
+description = "Server-first source control with immutable changesets and sparse workspaces"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{name = "Open Scion contributors"}]
+keywords = ["version-control", "scm", "agents", "monorepo", "sparse-checkout"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Version Control",
+]
+dependencies = []
+
+[project.scripts]
+scion = "open_scion.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rizaust/open-scion"
+Issues = "https://github.com/rizaust/open-scion/issues"
+
+[tool.setuptools.packages.find]
+include = ["open_scion*"]

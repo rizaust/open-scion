@@ -17,7 +17,7 @@ def _text(data: bytes) -> str | None:
         result = data.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    return result if result.count("\n") <= LINE_LIMIT else None
+    return result if len(result.splitlines()) <= LINE_LIMIT else None
 
 
 def _edits(base: list[str], other: list[str]) -> list[tuple]:
@@ -182,6 +182,7 @@ class Operations:
     def blame(self, revision: str, path: str) -> list[dict]:
         validate_path(path)
         record = self.store.get_changeset(revision)
+        revision = record["id"]
         if path not in self.store.tree(record["id"], path):
             raise ScionError("Path not found", code="not_found", status=404)
         lineage = []
