@@ -2,11 +2,13 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 import hashlib
+from contextlib import closing
 import random
 import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from open_scion.store import Store, ScionError, blob_id, validate_path, validate_ref
 
@@ -171,6 +173,72 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(any(entry["blob"] in error for error in check["errors"]))
         path.unlink()
         self.assertFalse(self.store.fsck()["ok"])
+
+    def test_ref_audit_is_transactional_and_immutable(self):
+        a = self.commit({})
+        b = self.commit({"a": self.entry()}, a["id"])
+        self.store.update_ref("main", a["id"], None)
+        self.store.update_ref("main", b["id"], a["id"])
+        with self.assertRaises(ScionError):
+            self.store.update_ref("main", a["id"], a["id"])
+        history = self.store.ref_log("main")
+        self.assertEqual([(row["old"], row["new"]) for row in history], [(a["id"], b["id"]), (None, a["id"])])
+        self.assertGreater(history[0]["sequence"], history[1]["sequence"])
+        self.assertEqual(self.store.ref_log("absent"), [])
+        self.assertEqual(len(self.store.ref_log(limit=1)), 1)
+        with closing(sqlite3.connect(self.store.db_path)) as db, db:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE ref_audit SET name='other'")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM ref_audit")
+            db.execute("CREATE TRIGGER reject_audit BEFORE INSERT ON ref_audit BEGIN SELECT RAISE(ABORT,'test failure'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.update_ref("main", a["id"], b["id"])
+        self.assertEqual(self.store.resolve("main"), b["id"])
+        self.assertEqual(len(self.store.ref_log()), 2)
+
+    def test_audit_migration_preserves_existing_refs(self):
+        a = self.commit({})
+        self.store.update_ref("main", a["id"], None)
+        with closing(sqlite3.connect(self.store.db_path)) as db, db:
+            db.execute("DROP TABLE ref_audit")
+        reopened = Store(self.temporary.name)
+        self.assertEqual(reopened.resolve("main"), a["id"])
+        self.assertEqual(reopened.ref_log(), [])
+        b = self.commit({}, a["id"])
+        reopened.update_ref("main", b["id"], a["id"])
+        self.assertEqual(reopened.ref_log()[0]["old"], a["id"])
+        self.assertTrue(reopened.fsck()["ok"])
+
+    def test_fsck_pins_metadata_before_concurrent_objects(self):
+        a = self.commit({"a": self.entry()})
+        self.store.update_ref("main", a["id"], None)
+        original = self.store._object_files
+        def inventory_after_new_commit():
+            b = self.commit({"nested/b": self.entry(b"new")}, a["id"])
+            self.store.update_ref("main", b["id"], a["id"])
+            return original()
+        with patch.object(self.store, "_object_files", inventory_after_new_commit):
+            check = self.store.fsck()
+        self.assertTrue(check["ok"], check)
+        self.assertEqual(check["changesets"], 1)
+        self.assertEqual(check["ref_events"], 1)
+        self.assertEqual(self.store.stats()["changesets"], 2)
+
+    def test_fsck_follows_edges_missing_from_racing_inventory(self):
+        a = self.commit({"nested/a": self.entry()})
+        with patch.object(self.store, "_object_files", return_value=iter([self.store._object_path(a["tree"])])):
+            check = self.store.fsck()
+        self.assertTrue(check["ok"], check)
+        self.assertEqual(check["objects"], 4)
+
+    def test_read_only_verification_never_recreates_missing_objects(self):
+        self.store._object_path(self.store._empty_tree).unlink()
+        check = Store(self.temporary.name, read_only=True).fsck()
+        self.assertFalse(check["ok"])
+        self.assertFalse(self.store._object_path(self.store._empty_tree).exists())
+        with self.assertRaises(ScionError):
+            Store(self.temporary.name, read_only=True).put_blob(b"forbidden")
 
     def test_parent_validation(self):
         a = self.commit({})

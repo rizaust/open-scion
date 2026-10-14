@@ -98,16 +98,31 @@ def _validate_oid(oid: str) -> str:
 class Store:
     """Thread-safe storage using atomic object installation and SQLite WAL."""
 
-    def __init__(self, root):
+    def __init__(self, root, *, read_only: bool = False):
         self.root = Path(root).expanduser().absolute()
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
+        if read_only and not self.root.is_dir():
+            raise ScionError("Repository does not exist", "not_found", 404)
+        if not read_only:
+            self.root.mkdir(parents=True, exist_ok=True)
         self.objects = self.root / "objects"
         if self.objects.is_symlink():
             raise ScionError("Object directory must not be a symlink")
-        self.objects.mkdir(exist_ok=True)
+        if read_only:
+            if not self.objects.is_dir():
+                raise ScionError("Object directory is missing", "corrupt", 500)
+        else:
+            self.objects.mkdir(exist_ok=True)
         self.db_path = self.root / "scion.db"
         if self.db_path.is_symlink():
             raise ScionError("Database must not be a symlink")
+        if read_only:
+            self._empty_tree = _identity("tree", {})
+            with self._connection() as db:
+                version = db.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
+                if version != ("1",):
+                    raise ScionError("Unsupported storage schema", "unsupported", 500)
+            return
         with self._connection() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
@@ -125,6 +140,23 @@ class Store:
                     name TEXT PRIMARY KEY,
                     target TEXT NOT NULL REFERENCES changesets(id)
                 );
+                CREATE TABLE IF NOT EXISTS ref_audit (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    old_target TEXT REFERENCES changesets(id),
+                    new_target TEXT NOT NULL REFERENCES changesets(id),
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ref_audit_name_sequence
+                    ON ref_audit(name, sequence);
+                CREATE TRIGGER IF NOT EXISTS immutable_ref_audit_update
+                BEFORE UPDATE ON ref_audit BEGIN
+                    SELECT RAISE(ABORT, 'ref audit records are immutable');
+                END;
+                CREATE TRIGGER IF NOT EXISTS immutable_ref_audit_delete
+                BEFORE DELETE ON ref_audit BEGIN
+                    SELECT RAISE(ABORT, 'ref audit records are immutable');
+                END;
                 CREATE TRIGGER IF NOT EXISTS immutable_changeset_update
                 BEFORE UPDATE ON changesets BEGIN
                     SELECT RAISE(ABORT, 'changesets are immutable');
@@ -141,7 +173,8 @@ class Store:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
+        location = self.db_path.as_uri() + "?mode=ro" if self.read_only else self.db_path
+        db = sqlite3.connect(location, uri=self.read_only, timeout=30, isolation_level=None)
         try:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA busy_timeout=30000")
@@ -159,6 +192,8 @@ class Store:
         return path
 
     def _write_object(self, kind: str, payload: bytes) -> str:
+        if self.read_only:
+            raise ScionError("Repository is read-only", "read_only", 403)
         envelope = _envelope(kind, payload)
         oid = hashlib.sha256(envelope).hexdigest()
         path = self._object_path(oid)
@@ -421,8 +456,32 @@ class Store:
                                  {"ref": name, "expected": expected, "actual": current})
             db.execute("INSERT INTO refs(name,target) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET target=excluded.target",
                        (name, target))
+            db.execute("INSERT INTO ref_audit(name,old_target,new_target,created_at) VALUES(?,?,?,?)",
+                       (name, current, target, datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")))
             db.commit()
         return {"name": name, "target": target}
+
+    def ref_log(self, name: str | None = None, limit: int = 100) -> list[dict]:
+        """Read committed ref transitions, newest first; failed CAS writes no event."""
+        if name is not None:
+            validate_ref(name)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ScionError("Ref log limit must be between 1 and 10000")
+        query = "SELECT sequence,name,old_target,new_target,created_at FROM ref_audit"
+        values = []
+        if name is not None:
+            query += " WHERE name=?"
+            values.append(name)
+        query += " ORDER BY sequence DESC LIMIT ?"
+        values.append(limit)
+        with self._connection() as db:
+            return [dict(zip(("sequence", "name", "old", "new", "created_at"), row))
+                    for row in db.execute(query, values)]
+
+    def backup(self, destination) -> dict:
+        """Publish a verified online snapshot containing all committed changesets."""
+        from .backup import create_backup
+        return create_backup(self, destination)
 
     def log(self, revision: str, limit: int = 50, path: str | None = None) -> list[dict]:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1 or limit > 10000:
@@ -461,57 +520,92 @@ class Store:
                         yield path
 
     def fsck(self) -> dict:
-        """Verify every stored object, changeset, tree edge, and ref."""
+        """Verify a pinned metadata snapshot and all observed immutable objects."""
         errors = []
+        changesets = {}
+        refs = []
+        audit = []
+        try:
+            with self._connection() as db:
+                db.execute("BEGIN")
+                # Establish the WAL snapshot before enumerating object files.
+                rows = list(db.execute("SELECT id FROM changesets"))
+                for result in db.execute("PRAGMA integrity_check"):
+                    if result[0] != "ok":
+                        errors.append(f"SQLite: {result[0]}")
+                for result in db.execute("PRAGMA foreign_key_check"):
+                    errors.append(f"SQLite foreign key violation: {result}")
+                for row in rows:
+                    try:
+                        changesets[row[0]] = self._get_changeset(db, row[0])
+                    except (ScionError, TypeError, KeyError, ValueError) as exc:
+                        errors.append(str(exc))
+                refs = list(db.execute("SELECT name,target FROM refs"))
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ref_audit'").fetchone():
+                    audit = list(db.execute("SELECT sequence,name,old_target,new_target,created_at FROM ref_audit ORDER BY sequence"))
+        except (OSError, sqlite3.DatabaseError, ScionError) as exc:
+            errors.append(f"Metadata: {exc}")
+        pending = []
+        for record in changesets.values():
+            pending.append((record["tree"], "tree"))
+            pending.extend((entry["blob"], "blob") for entry in record["changes"].values() if entry is not None)
+        pending.append((self._empty_tree, "tree"))
+        try:
+            pending.extend((path.parent.name + path.name, None) for path in self._object_files())
+        except (OSError, ScionError) as exc:
+            errors.append(f"Object inventory: {exc}")
         object_kinds = {}
-        tree_entries = {}
-        for path in self._object_files():
-            oid = path.parent.name + path.name
+        failed = set()
+        while pending:
+            oid, expected = pending.pop()
+            if oid in failed:
+                continue
+            if oid in object_kinds:
+                if expected is not None and object_kinds[oid] != expected:
+                    errors.append(f"Object {oid} has type {object_kinds[oid]}, expected {expected}")
+                continue
             try:
                 kind, _ = self._read_object(oid)
                 object_kinds[oid] = kind
+                if expected is not None and kind != expected:
+                    errors.append(f"Object {oid} has type {kind}, expected {expected}")
                 if kind == "tree":
-                    tree_entries[oid] = self._read_tree(oid)
+                    # Follow edges directly: a concurrent tree may appear after its
+                    # child directory was scanned, even though the child is durable.
+                    pending.extend((entry["oid"], entry["type"]) for entry in self._read_tree(oid).values())
             except (OSError, ScionError) as exc:
+                failed.add(oid)
                 errors.append(str(exc))
-        for oid, entries in tree_entries.items():
-            for name, entry in entries.items():
-                if object_kinds.get(entry["oid"]) != entry["type"]:
-                    errors.append(f"Tree {oid} entry {name!r} references missing or wrong-type object {entry['oid']}")
-        changesets = {}
-        with self._connection() as db:
-            db.execute("BEGIN")
-            for result in db.execute("PRAGMA integrity_check"):
-                if result[0] != "ok":
-                    errors.append(f"SQLite: {result[0]}")
-            for row in db.execute("SELECT id FROM changesets"):
-                try:
-                    record = self._get_changeset(db, row[0])
-                    changesets[row[0]] = record
-                    if object_kinds.get(record["tree"]) != "tree":
-                        errors.append(f"Changeset {row[0]} references a missing root tree")
-                    for path, entry in record["changes"].items():
-                        validate_path(path)
-                        if entry is not None and object_kinds.get(entry["blob"]) != "blob":
-                            errors.append(f"Changeset {row[0]} references missing blob at {path!r}")
-                except (ScionError, TypeError, KeyError, ValueError) as exc:
-                    errors.append(str(exc))
-            refs = list(db.execute("SELECT name,target FROM refs"))
-            for name, target in refs:
-                try:
-                    validate_ref(name)
-                except ScionError as exc:
-                    errors.append(str(exc))
-                if target not in changesets:
-                    errors.append(f"Ref {name!r} references missing changeset {target}")
+        ref_targets = dict(refs)
+        for name, target in refs:
+            try:
+                validate_ref(name)
+            except ScionError as exc:
+                errors.append(str(exc))
+            if target not in changesets:
+                errors.append(f"Ref {name!r} references missing changeset {target}")
         for oid, record in changesets.items():
             parents = record["parents"]
-            if not isinstance(parents, list) or len(parents) > 2 or len(set(parents)) != len(parents):
-                errors.append(f"Changeset {oid} has invalid parents")
-                continue
             if any(parent not in changesets for parent in parents):
                 errors.append(f"Changeset {oid} references missing parent")
             elif record["generation"] != max((changesets[p]["generation"] for p in parents), default=-1) + 1:
                 errors.append(f"Changeset {oid} has invalid generation")
+        audit_targets = {}
+        for sequence, name, old, new, created_at in audit:
+            try:
+                validate_ref(name)
+                if not isinstance(created_at, str) or not created_at.endswith("Z"):
+                    raise ValueError("Invalid UTC timestamp")
+                datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                if new not in changesets or old is not None and old not in changesets:
+                    raise ValueError("Missing changeset")
+                if name in audit_targets and old != audit_targets[name]:
+                    raise ValueError("Discontinuous ref history")
+                audit_targets[name] = new
+            except (ScionError, ValueError, TypeError) as exc:
+                errors.append(f"Ref audit {sequence}: {exc}")
+        for name, target in audit_targets.items():
+            if ref_targets.get(name) != target:
+                errors.append(f"Ref audit disagrees with current ref {name!r}")
         return {"ok": not errors, "errors": errors, "objects": len(object_kinds),
-                "changesets": len(changesets), "refs": len(refs)}
+                "changesets": len(changesets), "refs": len(refs), "ref_events": len(audit)}
