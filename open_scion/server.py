@@ -6,8 +6,15 @@ import hmac
 import ipaddress
 import json
 import logging
+import math
 import re
+import signal
 import socket
+import sqlite3
+import threading
+import time
+import uuid
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -17,16 +24,33 @@ from .store import ScionError, Store
 
 
 MAX_BODY_BYTES = 16 * 1024 * 1024
+MAX_INFLIGHT_BYTES = 64 * 1024 * 1024
 MAX_URL_BYTES = 8192
 REQUEST_TIMEOUT = 15
 MAX_RESULT_LIMIT = 1000
 _OBJECT_ID = re.compile(r"[0-9a-f]{64}\Z")
 _BAD_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _LOGGER = logging.getLogger(__name__)
+_ACCESS_LOGGER = logging.getLogger("open_scion.access")
+_PROCESS_STARTED = time.monotonic()
+
+
+def _access_path(target: str) -> str:
+    """Keep request queries, URL credentials, and fragments out of access logs."""
+    try:
+        return urlsplit(target[:MAX_URL_BYTES]).path or "/"
+    except ValueError:
+        return "<invalid>"
+
+
+def _access_method(method: str) -> str:
+    return method if method in {"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE",
+                                "OPTIONS", "CONNECT", "TRACE"} else "UNKNOWN"
 
 
 def _allowed_methods(path: str) -> tuple[str, ...]:
-    if path in {"/health", "/v1/refs", "/v1/stats", "/v1/tree", "/v1/log", "/v1/diff",
+    if path in {"/health", "/ready", "/v1/metrics", "/v1/ref-log",
+                "/v1/refs", "/v1/stats", "/v1/tree", "/v1/log", "/v1/diff",
                 "/v1/merge-base", "/v1/blame", "/v1/search"} or any(
             path.startswith(prefix) and len(path) > len(prefix)
             for prefix in ("/v1/blobs/", "/v1/changesets/")):
@@ -53,20 +77,174 @@ def _loopback_host(host: str) -> bool:
 
 
 class ScionHTTPServer(ThreadingHTTPServer):
-    """Threads do not prevent shutdown when a client abandons a request."""
+    """Bound worker admission, account for every connection, and drain on close."""
 
     daemon_threads = True
     block_on_close = False
     allow_reuse_address = True
 
-    def __init__(self, store: Store, host: str, port: int, token: str | None):
+    def __init__(self, store: Store, host: str, port: int, token: str | None,
+                 max_workers: int, request_timeout: float, max_inflight_bytes: int):
         self.store = store
         self.operations = Operations(store)
         self.token = token
         self.loopback = _loopback_host(host)
+        self.max_workers = max_workers
+        self.request_timeout = float(request_timeout)
+        self.max_inflight_bytes = max_inflight_bytes
+        self._capacity = threading.BoundedSemaphore(max_workers)
+        self._state = threading.Condition()
+        self._active_sockets: set[socket.socket] = set()
+        self._request_count = 0
+        self._inflight_body_bytes = 0
+        self._statuses: Counter[str] = Counter()
+        self._draining = False
+        self._drain_deadline: float | None = None
         if ":" in host:
             self.address_family = socket.AF_INET6
         super().__init__((host, port), ScionRequestHandler)
+
+    def metrics(self) -> dict:
+        """Status is the only metric label; paths and client identities are never labels."""
+        with self._state:
+            return {"active": len(self._active_sockets), "requests": self._request_count,
+                    "statuses": dict(sorted(self._statuses.items())),
+                    "uptime_seconds": round(time.monotonic() - _PROCESS_STARTED, 3),
+                    "max_workers": self.max_workers,
+                    "inflight_body_bytes": self._inflight_body_bytes,
+                    "max_inflight_bytes": self.max_inflight_bytes,
+                    "request_timeout_seconds": self.request_timeout, "draining": self._draining}
+
+    def reserve_body(self, size: int) -> bool:
+        with self._state:
+            if size > self.max_inflight_bytes - self._inflight_body_bytes:
+                return False
+            self._inflight_body_bytes += size
+            return True
+
+    def release_body(self, size: int) -> None:
+        with self._state:
+            self._inflight_body_bytes -= size
+
+    def completed(self, *, request_id: str, method: str, path: str, status: int,
+                  started: float, remote_ip: str) -> None:
+        status = status if 100 <= status <= 599 else 500
+        with self._state:
+            self._statuses[str(status)] += 1
+        record = {"request_id": request_id, "method": _access_method(method),
+                  "path": _access_path(path), "status": status,
+                  "duration_ms": round((time.monotonic() - started) * 1000, 3),
+                  "remote_ip": remote_ip}
+        _ACCESS_LOGGER.info(json.dumps(record, ensure_ascii=True, separators=(",", ":")))
+
+    def _reject_busy(self, request: socket.socket, address: tuple) -> None:
+        started, request_id = time.monotonic(), uuid.uuid4().hex
+        method, path = "UNKNOWN", "<unread>"
+        try:
+            request.setblocking(False)
+            try:
+                line = request.recv(MAX_URL_BYTES + 32, socket.MSG_PEEK).split(b"\r\n", 1)[0]
+                parts = line.decode("iso-8859-1").split(" ")
+                if len(parts) >= 3:
+                    method, path = parts[0], parts[1]
+            except (BlockingIOError, OSError):
+                pass
+            data = b'{"error":{"code":"overloaded","message":"Server is busy; retry later","details":null}}'
+            response = ("HTTP/1.1 503 Service Unavailable\r\n"
+                        "Content-Type: application/json; charset=utf-8\r\n"
+                        f"Content-Length: {len(data)}\r\n"
+                        f"X-Request-ID: {request_id}\r\n"
+                        "Retry-After: 1\r\nCache-Control: no-store\r\n"
+                        "X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n")
+            request.settimeout(min(self.request_timeout, 0.1))
+            request.sendall(response.encode("ascii") + data)
+        except OSError:
+            pass
+        finally:
+            self.shutdown_request(request)
+            self.completed(request_id=request_id, method=method, path=path, status=503,
+                           started=started, remote_ip=address[0])
+
+    def process_request(self, request: socket.socket, client_address: tuple) -> None:
+        with self._state:
+            self._request_count += 1
+            admitted = not self._draining and self._capacity.acquire(blocking=False)
+            if admitted:
+                self._active_sockets.add(request)
+        if not admitted:
+            self._reject_busy(request, client_address)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._release_worker(request)
+            self._reject_busy(request, client_address)
+
+    def _release_worker(self, request: socket.socket) -> None:
+        with self._state:
+            self._active_sockets.discard(request)
+            self._capacity.release()
+            self._state.notify_all()
+
+    def process_request_thread(self, request: socket.socket, client_address: tuple) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release_worker(request)
+
+    def readiness(self) -> bool:
+        """Probe readable SQLite schema without scanning or repairing stored objects."""
+        with self._state:
+            if self._draining:
+                return False
+        try:
+            uri = self.store.db_path.resolve().as_uri() + "?mode=ro"
+            connection = sqlite3.connect(uri, uri=True, timeout=min(self.request_timeout, 1))
+            try:
+                connection.execute("PRAGMA query_only=ON")
+                version = connection.execute(
+                    "SELECT value FROM metadata WHERE key='schema_version'").fetchone()
+                if version != ("1",):
+                    return False
+                connection.execute("SELECT id,data,tree,generation FROM changesets LIMIT 0")
+                connection.execute("SELECT name,target FROM refs LIMIT 0")
+                connection.execute("SELECT sequence,name,old_target,new_target,created_at FROM ref_audit LIMIT 0")
+            finally:
+                connection.close()
+        except (OSError, sqlite3.Error, ValueError):
+            return False
+        return True
+
+    def _drain(self) -> None:
+        with self._state:
+            self._draining = True
+            if self._drain_deadline is None:
+                self._drain_deadline = time.monotonic() + self.request_timeout
+            while self._active_sockets:
+                remaining = self._drain_deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._state.wait(remaining)
+            pending = tuple(self._active_sockets)
+        for request in pending:
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        with self._state:
+            self._state.wait_for(lambda: not self._active_sockets, timeout=1)
+
+    def shutdown(self) -> None:
+        with self._state:
+            self._draining = True
+        super().shutdown()
+        self._drain()
+
+    def server_close(self) -> None:
+        with self._state:
+            self._draining = True
+        super().server_close()
+        self._drain()
 
 
 class ScionRequestHandler(BaseHTTPRequestHandler):
@@ -78,11 +256,41 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
     sys_version = ""
 
     def setup(self) -> None:
+        self.request_id = uuid.uuid4().hex
+        self._started = time.monotonic()
+        self._status: int | None = None
+        self._reserved_body_bytes: int | None = None
         super().setup()
-        self.connection.settimeout(REQUEST_TIMEOUT)
+        self.connection.settimeout(self.server.request_timeout)
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        _LOGGER.debug("HTTP %s %r", self.client_address[0], fmt % args)
+        pass
+
+    def log_error(self, fmt: str, *args: Any) -> None:
+        if any(isinstance(arg, TimeoutError) for arg in args):
+            self._status = 408
+
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except TimeoutError:
+            self._status = 408
+            self.close_connection = True
+        except (ConnectionError, OSError):
+            self._status = 499
+            self.close_connection = True
+
+    def finish(self) -> None:
+        try:
+            super().finish()
+        except (OSError, TimeoutError):
+            self._status = 499
+        finally:
+            if self._reserved_body_bytes is not None:
+                self.server.release_body(self._reserved_body_bytes)
+            self.server.completed(request_id=self.request_id, method=getattr(self, "command", ""),
+                                  path=getattr(self, "path", "<unread>"), status=self._status or 499,
+                                  started=self._started, remote_ip=self.client_address[0])
 
     def _send(self, status: int, body: Any = None, *, raw: bool = False,
               headers: dict[str, str] | None = None) -> None:
@@ -90,11 +298,13 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
                                            separators=(",", ":")).encode("utf-8")
         if status in (204, 304):
             data = b""
+        self._status = status
         self.send_response(status)
         self.send_header("Content-Type", "application/octet-stream" if raw else
                          "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Request-ID", self.request_id)
         self.send_header("Cache-Control", (headers or {}).get("Cache-Control", "no-store"))
         self.send_header("Connection", "close")
         for name, value in (headers or {}).items():
@@ -112,6 +322,8 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
         if error.status == 405:
             path, _ = self._target()
             headers["Allow"] = ", ".join(_allowed_methods(path))
+        if error.code == "overloaded":
+            headers["Retry-After"] = "1"
         self._send(error.status, {"error": {"code": error.code,
                                            "message": str(error),
                                            "details": error.details}}, headers=headers)
@@ -193,7 +405,7 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
             path, _ = self._target()
             self._authenticate(path)
             self._check_origin()
-            self._body_length()
+            self._reserve_body(self._body_length())
         except ScionError as exc:
             self._error(exc)
             return False
@@ -201,11 +413,19 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         return True
 
+    def _reserve_body(self, size: int) -> None:
+        if self._reserved_body_bytes is not None:
+            return
+        if not self.server.reserve_body(size):
+            raise ScionError("Request body capacity is full; retry later", "overloaded", 503)
+        self._reserved_body_bytes = size
+
     def _body(self, content_type: str) -> bytes:
         length = self._body_length()
         types = self.headers.get_all("Content-Type", [])
         if len(types) != 1 or types[0].split(";", 1)[0].strip().lower() != content_type:
             raise ScionError(f"Content-Type must be {content_type}", "unsupported_media_type", 415)
+        self._reserve_body(length)
         try:
             data = self.rfile.read(length)
         except (TimeoutError, socket.timeout) as exc:
@@ -274,6 +494,18 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
         if path == "/health":
             self._fields(query)
             self._send(200, {"status": "ok"})
+        elif path == "/ready":
+            self._fields(query)
+            if not self.server.readiness():
+                raise ScionError("Repository is not ready", "not_ready", 503)
+            self._send(200, {"status": "ready"})
+        elif path == "/v1/metrics":
+            self._fields(query)
+            self._send(200, self.server.metrics())
+        elif path == "/v1/ref-log":
+            self._fields(query, ("name",), ("limit",))
+            self._text(query, "name")
+            self._send(200, store.ref_log(query["name"], self._limit(query, 50)))
         elif path == "/v1/refs":
             self._fields(query)
             self._send(200, store.list_refs())
@@ -406,9 +638,10 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
         except ScionError as exc:
             self._error(exc)
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            self._status = 499
             self.close_connection = True
-        except Exception:
-            _LOGGER.exception("Unhandled Open Scion request error")
+        except Exception as exc:
+            _LOGGER.error("Request %s failed with %s", self.request_id, type(exc).__name__)
             self._error(ScionError("Internal server error", "internal", 500))
 
     def do_GET(self) -> None:
@@ -427,7 +660,9 @@ class ScionRequestHandler(BaseHTTPRequestHandler):
 
 
 def make_server(store: Store, host: str = "127.0.0.1", port: int = 0,
-                token: str | None = None) -> ScionHTTPServer:
+                token: str | None = None, *, max_workers: int = 32,
+                request_timeout: float = REQUEST_TIMEOUT,
+                max_inflight_bytes: int = MAX_INFLIGHT_BYTES) -> ScionHTTPServer:
     """Construct a server; callers own serve_forever, shutdown, and server_close."""
     if token is not None and (not isinstance(token, str) or not token or
                               len(token) > 4096 or any(not "!" <= char <= "~" for char in token)):
@@ -436,18 +671,37 @@ def make_server(store: Store, host: str = "127.0.0.1", port: int = 0,
         raise ScionError("Host must be a nonempty string")
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
         raise ScionError("Port must be an integer from 0 to 65535")
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int) or not 1 <= max_workers <= 1024:
+        raise ScionError("max_workers must be an integer from 1 to 1024")
+    if (isinstance(request_timeout, bool) or not isinstance(request_timeout, (int, float))
+            or not math.isfinite(request_timeout) or not 0 < request_timeout <= 300):
+        raise ScionError("request_timeout must be a finite number greater than 0 and at most 300 seconds")
+    if isinstance(max_inflight_bytes, bool) or not isinstance(max_inflight_bytes, int) or max_inflight_bytes < 1:
+        raise ScionError("max_inflight_bytes must be a positive integer")
     if not _loopback_host(host) and token is None:
         raise ScionError("A bearer token is required when binding beyond loopback", "forbidden", 403)
-    return ScionHTTPServer(store, host, port, token)
+    return ScionHTTPServer(store, host, port, token, max_workers, request_timeout, max_inflight_bytes)
 
 
 def serve(root: str, host: str = "127.0.0.1", port: int = 7433,
-          token: str | None = None) -> None:
+          token: str | None = None, *, max_workers: int = 32,
+          request_timeout: float = REQUEST_TIMEOUT,
+          max_inflight_bytes: int = MAX_INFLIGHT_BYTES) -> None:
     """Serve a repository until interrupted, then close listening/client threads."""
-    server = make_server(Store(root), host, port, token)
+    server = make_server(Store(root), host, port, token, max_workers=max_workers,
+                         request_timeout=request_timeout, max_inflight_bytes=max_inflight_bytes)
+    previous_handler = None
+    if threading.current_thread() is threading.main_thread():
+        def terminate(signum, frame):
+            raise KeyboardInterrupt
+        previous_handler = signal.signal(signal.SIGTERM, terminate)
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        try:
+            server.server_close()
+        finally:
+            if previous_handler is not None:
+                signal.signal(signal.SIGTERM, previous_handler)
